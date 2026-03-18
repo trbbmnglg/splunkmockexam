@@ -1,0 +1,6 @@
+name = "splunkmockexam"
+compatibility_date = "2026-01-15"
+assets = { directory = "./dist" }
+
+# Environment variables (VITE_GROQ_TOKEN, etc.) are set in the
+# Cloudflare dashboard → Variables and secrets — never hardcode secrets here.

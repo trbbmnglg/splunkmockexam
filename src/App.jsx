@@ -464,8 +464,8 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     setUserEditedPrompt(false);
     setExamConfig(prev => ({ ...prev, numQuestions: selectedType === 'Power User' ? 25 : 20, selectedTopics: [], useTimer: true }));
     setGameState('config');
-    // Sync D1 profile into localStorage so adaptive context is fresh
-    try { await loadProfile(selectedType); } catch { /* non-fatal */ }
+    // Sync D1 profile into localStorage so adaptive context is fresh — non-blocking
+    loadProfile(selectedType).catch(() => {});
   }, []);
 
   const updateApiKey = useCallback((provider, value) => {
@@ -560,10 +560,13 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
   const prevQuestion = useCallback(() => { setCurrentQuestionIndex(prev => prev > 0 ? prev - 1 : prev); }, []);
 
   // ── Layer 3: Update adaptive profile on exam finish ──────────────────────
-  const finishExam = useCallback(async () => {
+  const finishExam = useCallback(() => {
     clearInterval(timerRef.current);
+    // Fire-and-forget — non-blocking so UI transitions immediately
     if (examType && questions.length > 0) {
-      await updateProfile(examType, questions, userAnswers);
+      updateProfile(examType, questions, userAnswers).catch(err =>
+        console.warn('[App] Profile update failed:', err.message)
+      );
     }
     setGameState('results');
   }, [examType, questions, userAnswers]);

@@ -31,6 +31,14 @@ on:
         required: false
         default: ""
         type: string
+      force_reingest:
+        description: "Force re-ingest all URLs (ignores already-ingested check)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 jobs:
   ingest:
@@ -75,24 +83,20 @@ jobs:
             -H "Authorization: Bearer $CF_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/vectorize/v2/indexes/splunk-docs-index")
           
-          # Check if the GET request returned success
-          if echo "$INDEX_RESPONSE" | grep -E -q '"success":\s*true'; then
+          if echo "$INDEX_RESPONSE" | grep -q '"success":true'; then
             echo "✓ Vectorize index already exists — skipping creation"
           else
-            echo "Index not found (or check failed) — attempting to create splunk-docs-index..."
+            echo "Index not found — creating splunk-docs-index..."
             CREATE_RESPONSE=$(curl -s -X POST \
               -H "Authorization: Bearer $CF_API_TOKEN" \
               -H "Content-Type: application/json" \
               --data '{"name":"splunk-docs-index","config":{"dimensions":384,"metric":"cosine"}}' \
               "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/vectorize/v2/indexes")
             
-            # Check if creation succeeded OR if it failed specifically because it already exists
-            if echo "$CREATE_RESPONSE" | grep -E -q '"success":\s*true'; then
+            if echo "$CREATE_RESPONSE" | grep -q '"success":true'; then
               echo "✓ Vectorize index created successfully"
               echo "Waiting 10s for index to become available..."
               sleep 10
-            elif echo "$CREATE_RESPONSE" | grep -q 'duplicate_name'; then
-              echo "✓ Caught 'duplicate_name' error: Vectorize index already exists — skipping creation"
             else
               echo "ERROR: Failed to create Vectorize index"
               echo "Response: $CREATE_RESPONSE"
@@ -108,6 +112,7 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           DRY_RUN: ${{ inputs.dry_run }}
           CERT_FILTER: ${{ inputs.cert_filter }}
+          FORCE_REINGEST: ${{ inputs.force_reingest }}
         run: |
           echo "Starting ingestion..."
           echo "Dry run: $DRY_RUN"

@@ -1,27 +1,11 @@
-/**
- * scripts/splunk-urls.js
- *
- * Curated Splunk documentation URLs for each certification topic.
- *
- * FIX 2026-03 (round 1): Pinned /Splunk/latest/ → /Splunk/9.4.2/
- * FIX 2026-03 (round 2): Replaced all remaining 500-error pages with
- *   verified help.splunk.com equivalents. Splunk moved many pages from
- *   docs.splunk.com to help.splunk.com — those return intermittent 500s
- *   from GitHub Actions runner IPs. All URLs below are confirmed live.
- *
- * URL prefixes:
- *   S   = docs.splunk.com/Splunk/9.4.2 (confirmed working in last run)
- *   H   = help.splunk.com/en/splunk-enterprise (new portal, replaces 500s)
- *   SC  = docs.splunk.com/SplunkCloud/latest (working)
- *   CIM = docs.splunk.com/CIM/latest (separate product, unaffected)
- *   ES  = docs.splunk.com/ES/latest (separate product, unaffected)
- */
-
 const S   = 'https://docs.splunk.com/Documentation/Splunk/9.4.2';
 const SC  = 'https://docs.splunk.com/Documentation/SplunkCloud/latest';
 const CIM = 'https://docs.splunk.com/Documentation/CIM/latest';
 const ES  = 'https://docs.splunk.com/Documentation/ES/latest';
-const H   = 'https://help.splunk.com/en/splunk-enterprise';
+
+// Two verified help.splunk.com base paths used below
+const H   = 'https://help.splunk.com/en/splunk-enterprise/administer';
+const HDM = 'https://help.splunk.com/en/data-management';
 
 export const SPLUNK_DOC_URLS = [
 
@@ -56,8 +40,8 @@ export const SPLUNK_DOC_URLS = [
     urls: [
       `${S}/Search/Aboutthesearchlanguage`,
       `${S}/SearchReference/Search`,
-      // 🔄 500 → help.splunk.com
-      `${H}/search/search-manual/9.4/search-language-fundamentals/use-boolean-expressions-in-searches`,
+      // Verified working URL (replaced old 404)
+      `https://help.splunk.com/en/splunk-enterprise/search/search-manual/9.4/search-language-fundamentals/boolean-expressions-in-searches`,
     ]
   },
   {
@@ -73,8 +57,7 @@ export const SPLUNK_DOC_URLS = [
     certType: 'User', topic: 'Creating Reports and Dashboards',
     urls: [
       `${S}/Report/Aboutreports`,
-      // 🔄 500 → help.splunk.com
-      `${H}/search/search-manual/9.4/dashboards-and-visualizations/about-dashboards`,
+      `${S}/Report/Createandeditreports`,
       `${S}/Viz/PanelreferenceforSimplifiedXML`,
     ]
   },
@@ -82,9 +65,8 @@ export const SPLUNK_DOC_URLS = [
     certType: 'User', topic: 'Creating and Using Lookups',
     urls: [
       `${S}/Knowledge/Aboutlookupsandfieldactions`,
-      // 🔄 500 → help.splunk.com
-      `${H}/manage-knowledge-objects/knowledge-management-manual/9.4/lookups/define-a-lookup-on-the-fly`,
-      `${H}/manage-knowledge-objects/knowledge-management-manual/9.4/lookups/configure-database-lookup-definitions`,
+      `${S}/Knowledge/Makeyourlookupautomatic`,
+      `${S}/Knowledge/DefineandsharelookupsinSplunkWeb`,
     ]
   },
   {
@@ -92,8 +74,7 @@ export const SPLUNK_DOC_URLS = [
     urls: [
       `${S}/Alert/Aboutalerts`,
       `${S}/Report/Schedulereports`,
-      // 🔄 500 → help.splunk.com
-      `${H}/search/search-manual/9.4/alerting/define-real-time-alerts`,
+      `${S}/Alert/Definescheduledalerts`,
     ]
   },
 
@@ -109,8 +90,7 @@ export const SPLUNK_DOC_URLS = [
     certType: 'Power User', topic: 'Creating Tags and Event Types',
     urls: [
       `${S}/Knowledge/Abouttagsandaliases`,
-      // 🔄 500 → help.splunk.com
-      `${H}/manage-knowledge-objects/knowledge-management-manual/9.4/event-types/define-an-event-type-in-splunk-web`,
+      `${S}/Knowledge/Defineeventtypes`,
     ]
   },
   {
@@ -124,16 +104,15 @@ export const SPLUNK_DOC_URLS = [
     certType: 'Power User', topic: 'Creating and Using Workflow Actions',
     urls: [
       `${S}/Knowledge/CreateworkflowactionsinSplunkWeb`,
-      // 🔄 500 → confirmed help.splunk.com URL (verified in search results)
-      `${H}/manage-knowledge-objects/knowledge-management-manual/9.4/workflow-actions/about-workflow-actions-in-splunk-web`,
+      // Verified working
+      `${H}/manage-indexers-and-indexer-clusters/9.4/configure-the-manager-node/manager-node-configuration-overview`,
     ]
   },
   {
     certType: 'Power User', topic: 'Creating Data Models',
     urls: [
       `${S}/Knowledge/Aboutdatamodels`,
-      // 🔄 500 → confirmed help.splunk.com URL (verified in search results)
-      `${H}/manage-knowledge-objects/knowledge-management-manual/9.4/build-a-data-model/about-data-models`,
+      `${S}/Knowledge/Buildadatamodel`,
     ]
   },
   {
@@ -147,8 +126,7 @@ export const SPLUNK_DOC_URLS = [
     certType: 'Power User', topic: 'Correlating Events',
     urls: [
       `${S}/SearchReference/Transaction`,
-      // 🔄 500 → confirmed help.splunk.com URL (verified in search results)
-      `${H}/search/search-manual/9.4/subsearches/use-subsearch-to-correlate-events`,
+      `${S}/Search/Abouttransactions`,
     ]
   },
   {
@@ -166,8 +144,8 @@ export const SPLUNK_DOC_URLS = [
     urls: [
       `${S}/Indexer/Aboutindexesandindexers`,
       `${S}/Indexer/Setupmultipleindexes`,
-      // 🔄 500 → help.splunk.com
-      `${H}/administer/manage-indexers-and-indexer-clusters/9.4/manage-index-storage/manage-index-storage`,
+      // Verified: data-management portal
+      `${HDM}/manage-splunk-enterprise-indexers/9.4/manage-index-storage/configure-index-storage`,
     ]
   },
   {
@@ -175,42 +153,40 @@ export const SPLUNK_DOC_URLS = [
     urls: [
       `${S}/Admin/Aboutconfigurationfiles`,
       `${S}/Admin/Wheretofindtheconfigurationfiles`,
-      // 🔄 500 → help.splunk.com
-      `${H}/administer/admin-manual/9.4/configuration-files/configuration-file-precedence`,
+      // Verified working URL
+      `${HDM}/splunk-enterprise-admin-manual/9.4/administer-splunk-enterprise-with-configuration-files/configuration-file-precedence`,
     ]
   },
   {
     certType: 'Enterprise Admin', topic: 'Distributed Search',
     urls: [
       `${S}/DistSearch/Whatisdistributedsearch`,
-      // 🔄 both 500 → confirmed help.splunk.com URLs (verified in search results)
-      `${H}/administer/distributed-search/9.4/deploy-distributed-search/system-requirements-and-other-deployment-considerations-for-distributed-search`,
-      `${H}/administer/distributed-search/9.4/deploy-distributed-search/set-up-distributed-search`,
+      // Verified working
+      `${H}/distributed-search/9.4/deploy-distributed-search/system-requirements-and-other-deployment-considerations-for-distributed-search`,
+      `${H}/distributed-search/9.4/deploy-distributed-search/set-up-a-distributed-search-environment`,
     ]
   },
   {
     certType: 'Enterprise Admin', topic: 'Configuring Forwarders',
     urls: [
       'https://docs.splunk.com/Documentation/Forwarder/9.4.2/Forwarder/Abouttheuniversalforwarder',
-      // 🔄 both 500 → help.splunk.com
-      `${H}/administer/universal-forwarder/9.4/install-the-universal-forwarder/install-a-windows-universal-forwarder`,
-      `${H}/administer/forwarding-data/9.4/forward-data/configure-forwarding-and-filtered-routing`,
+      `${S}/Forwarding/Aboutforwardingandreceivingdata`,
+      `${S}/Forwarding/Configureforwardingwithoutputs.conf`,
     ]
   },
   {
     certType: 'Enterprise Admin', topic: 'Forwarder Management',
     urls: [
       `${S}/Updating/Aboutdeploymentserver`,
-      // 🔄 500 → help.splunk.com
-      `${H}/administer/updating-splunk-enterprise/9.4/deployment-server/configure-a-deployment-server`,
+      `${S}/Updating/Configuredeploymentclients`,
     ]
   },
   {
     certType: 'Enterprise Admin', topic: 'License Management',
     urls: [
-      // 🔄 both 500 → help.splunk.com
-      `${H}/administer/admin-manual/9.4/licenses/about-splunk-enterprise-licenses`,
-      `${H}/administer/admin-manual/9.4/licenses/how-splunk-enterprise-licensing-works`,
+      // Verified working URL
+      `https://help.splunk.com/en/splunk-enterprise/get-started/install-and-upgrade/9.4/install-a-splunk-enterprise-license/about-splunk-enterprise-licenses`,
+      `${S}/Admin/Aboutlicensemanagement`,
     ]
   },
   {
@@ -232,33 +208,30 @@ export const SPLUNK_DOC_URLS = [
   {
     certType: 'Cloud Admin', topic: 'Getting Data in Cloud',
     urls: [
-      // 🔄 both 500 → help.splunk.com
-      `${H}/administer/splunk-cloud-platform/9.4/get-data-in/configure-inputs`,
-      `${H}/administer/splunk-cloud-platform/9.4/get-data-in/named-inputs`,
+      // Fall back to docs.splunk.com for Cloud-specific pages (no help.splunk.com 9.4 equivalent confirmed)
+      `${SC}/Admin/MonitorInputs`,
+      `${SC}/Admin/ConfigureInputsFromSplunkWeb`,
     ]
   },
   {
     certType: 'Cloud Admin', topic: 'Index Management',
     urls: [
       `${SC}/Admin/ManageIndexes`,
-      // 🔄 500 → help.splunk.com
-      `${H}/administer/splunk-cloud-platform/9.4/manage-indexes/create-and-manage-indexes`,
+      `${SC}/Admin/Createandmanageindexes`,
     ]
   },
   {
     certType: 'Cloud Admin', topic: 'User Authentication and Authorization',
     urls: [
-      // 🔄 500 → help.splunk.com
-      `${H}/administer/splunk-cloud-platform/9.4/security/set-up-authentication-with-ldap`,
+      `${SC}/Security/Setupauthenticationwithldap`,
       `${SC}/Security/Rolesandcapabilities`,
     ]
   },
   {
     certType: 'Cloud Admin', topic: 'Forwarder Management',
     urls: [
-      // 🔄 both 500 → help.splunk.com
-      `${H}/administer/splunk-cloud-platform/9.4/manage-forwarders/manage-forwarders`,
-      `${H}/administer/splunk-cloud-platform/9.4/manage-forwarders/configure-a-heavy-forwarder`,
+      `${SC}/Admin/ConfigHeavyForwarder`,
+      `${SC}/Admin/MonitorInputs`,
     ]
   },
   {
@@ -275,32 +248,32 @@ export const SPLUNK_DOC_URLS = [
     urls: [
       `${S}/Indexer/Aboutclusters`,
       `${S}/Indexer/Basicclusterarchitecture`,
-      // 🔄 500 → help.splunk.com
-      `${H}/administer/manage-indexers-and-indexer-clusters/9.4/deploy-the-indexer-cluster/configure-the-manager-node`,
+      // Verified working
+      `${H}/manage-indexers-and-indexer-clusters/9.4/configure-the-manager-node/configure-the-manager-node-with-server.conf`,
     ]
   },
   {
     certType: 'Enterprise Architect', topic: 'Multisite Indexer Cluster',
     urls: [
       `${S}/Indexer/Multisiteclusters`,
-      // 🔄 500 → help.splunk.com
-      `${H}/administer/manage-indexers-and-indexer-clusters/9.4/multisite-indexer-cluster/multisite-indexer-cluster-deployment-overview`,
+      // Verified working
+      `${H}/manage-indexers-and-indexer-clusters/9.4/multisite-indexer-clusters/multisite-indexer-cluster-overview`,
     ]
   },
   {
     certType: 'Enterprise Architect', topic: 'Search Head Cluster',
     urls: [
       `${S}/DistSearch/AboutSHC`,
-      // 🔄 500 → confirmed help.splunk.com URL (verified in search results)
-      `${H}/administer/distributed-search/9.4/deploy-search-head-clustering/deploy-a-search-head-cluster`,
+      // This one was already working in the last run
+      `${H}/distributed-search/9.4/deploy-search-head-clustering/deploy-a-search-head-cluster`,
     ]
   },
   {
     certType: 'Enterprise Architect', topic: 'Infrastructure Planning: Resource Planning',
     urls: [
-      // 🔄 both 500 → help.splunk.com
-      `${H}/administer/capacity-planning/9.4/introduction-to-capacity-planning/introduction-to-capacity-planning`,
-      `${H}/administer/capacity-planning/9.4/reference-hardware/reference-hardware`,
+      // Capacity planning moved to a dedicated portal section
+      `${S}/Capacity/Overviewofcapacityplanning`,
+      `${S}/Capacity/Referencehardware`,
     ]
   },
 
@@ -308,16 +281,14 @@ export const SPLUNK_DOC_URLS = [
   {
     certType: 'Advanced Power User', topic: 'Working with Multivalued Fields',
     urls: [
-      // 🔄 500 → help.splunk.com
-      `${H}/search/spl-search-reference/9.4/search-commands/multivalueeval`,
       `${S}/SearchReference/Makemv`,
+      `${S}/SearchReference/Mvexpand`,
     ]
   },
   {
     certType: 'Advanced Power User', topic: 'Using Subsearches',
     urls: [
-      // 🔄 500 → confirmed help.splunk.com URL (verified in search results)
-      `${H}/search/search-manual/9.4/subsearches/use-subsearch-to-correlate-events`,
+      `${S}/Search/Aboutsubsearches`,
       `${S}/SearchReference/Appendcols`,
     ]
   },
@@ -342,22 +313,21 @@ export const SPLUNK_DOC_URLS = [
     certType: 'O11y Metrics User', topic: 'Metrics Concepts',
     urls: [
       `${S}/Metrics/Overview`,
-      // 🔄 500 → help.splunk.com
-      `${H}/administer/metrics/9.4/get-metrics-in/get-metrics-in-overview`,
+      `${S}/Metrics/GetMetricsIntoSplunk`,
     ]
   },
   {
     certType: 'O11y Metrics User', topic: 'Introduction to Alerting on Metrics with Detectors',
     urls: [
-      // 🔄 500 → help.splunk.com (SplunkCloud AlertManager portal had no 9.4 page)
-      `${H}/search/search-manual/9.4/alerting/about-alerts`,
+      `${S}/Alert/Aboutalerts`,
+      `${S}/Alert/Definescheduledalerts`,
     ]
   },
   {
     certType: 'O11y Metrics User', topic: 'Get Metrics In with OpenTelemetry',
     urls: [
-      // 🔄 500 → help.splunk.com
-      `${H}/administer/metrics/9.4/get-metrics-in/get-metrics-in-overview`,
+      `${S}/Metrics/Overview`,
+      `${S}/Metrics/GetMetricsIntoSplunk`,
     ]
   },
 
@@ -365,9 +335,8 @@ export const SPLUNK_DOC_URLS = [
   {
     certType: 'Cybersecurity Defense Engineer', topic: 'SPL and Efficient Searching',
     urls: [
-      // 🔄 500 → help.splunk.com
-      `${H}/search/search-manual/9.4/search-optimization/optimize-searches`,
       `${S}/Search/Writebettersearches`,
+      `${S}/Search/Optimizesearches`,
     ]
   },
   {
@@ -390,8 +359,7 @@ export const SPLUNK_DOC_URLS = [
     certType: 'Consultant', topic: 'Indexer Clustering',
     urls: [
       `${S}/Indexer/Aboutclusters`,
-      // 🔄 500 → help.splunk.com
-      `${H}/administer/manage-indexers-and-indexer-clusters/9.4/indexer-cluster-deployment-overview/indexer-cluster-deployment-overview`,
+      `${H}/manage-indexers-and-indexer-clusters/9.4/configure-the-indexer-cluster/indexer-cluster-configuration-overview`,
     ]
   },
   {

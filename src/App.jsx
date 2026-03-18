@@ -3,6 +3,8 @@ import { Clock, CheckCircle, XCircle, AlertTriangle, ChevronRight, ChevronLeft, 
 
 import { CURRENT_YEAR, YEAR_RANGE, TOPICS, CERT_CARDS, TOPIC_LINKS, API_KEY_URLS, PRODUCT_CONTEXT_MAP, EXAM_BLUEPRINTS } from './utils/constants';
 import { DEFAULT_GROQ_KEY, CF_WEBHOOK_URL, CF_WEBHOOK_TOKEN, validateSubmissionWithAI, generateDynamicQuestions } from './utils/api';
+import { runValidationPipeline } from './utils/agentValidator';
+import { updateProfile, buildAdaptiveContext, getProfileSummary, clearProfile } from './utils/agentAdaptive';
 
 // ─── Consent section definitions ───────────────────────────────────────────
 const CONSENT_SECTIONS = [
@@ -262,6 +264,9 @@ This distribution is mandatory — do not deviate from these counts.`;
       topicDistribution = `Distribute questions broadly and evenly across all major topics of the ${type} certification.`;
     }
 
+    // Layer 3: Get adaptive context from performance history
+    const { adaptivePromptSection } = buildAdaptiveContext(type, num, bp?.topics || []);
+
     return `You are a Splunk certification exam author creating a mock exam for the "${type}" certification (${bp ? bp.level : 'intermediate'}).
 
 EXAM CONTEXT:
@@ -276,7 +281,7 @@ ${difficulty}
 
 TOPIC DISTRIBUTION — follow these counts exactly:
 ${topicDistribution}
-
+${adaptivePromptSection}
 QUESTION QUALITY RULES — every question must follow ALL of these:
 1. Each question tests ONE specific, distinct concept. No two questions may test the same concept, even if the topic is the same.
 2. Options must be grammatically parallel and similar in length (within ~10 words of each other). Never mix full sentences with single words as options.
@@ -343,7 +348,6 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
 
   const handleStartExam = useCallback(async () => {
     const rawKey = apiKeys[examConfig.aiProvider];
-    // For llama/Groq, always fall back to DEFAULT_GROQ_KEY if user hasn't entered their own
     const currentKey = (examConfig.aiProvider === 'llama' && (!rawKey || !rawKey.trim()))
       ? DEFAULT_GROQ_KEY
       : rawKey;
@@ -355,7 +359,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
 
     setGameState('loading');
     setLoadingText(`Generating ${examConfig.numQuestions} dynamic questions using ${examConfig.aiProvider.toUpperCase()}...`);
-    
+
     const { questions: fetchedQuestions, error } = await generateDynamicQuestions(examType, examConfig, currentKey);
     if (error) setApiError(error);
 
@@ -365,10 +369,27 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
       return;
     }
 
-    const randomizedQuestions = fetchedQuestions.map(q => {
+    // ── Layer 1: Run validation + refinement pipeline ──────────────────────
+    // Only runs for llama/Groq (same key available). Non-fatal if it fails.
+    let validatedQuestions = fetchedQuestions;
+    const groqKey = apiKeys['llama'] || DEFAULT_GROQ_KEY;
+    if (groqKey) {
+      const bp = EXAM_BLUEPRINTS[examType];
+      const { questions: refined } = await runValidationPipeline(
+        fetchedQuestions,
+        examType,
+        bp?.level || 'Intermediate-Level',
+        groqKey,
+        (msg) => setLoadingText(msg)
+      );
+      validatedQuestions = refined;
+    }
+    // ── End Layer 1 ────────────────────────────────────────────────────────
+
+    const randomizedQuestions = validatedQuestions.map(q => {
       const safeQuestion = typeof q.question === 'string' ? q.question : JSON.stringify(q?.question || "Missing question text");
       const safeAnswer = typeof q.answer === 'string' ? q.answer : JSON.stringify(q?.answer || "Missing answer text");
-      
+
       let safeOptions = q.options;
       if (!Array.isArray(safeOptions)) {
         if (typeof safeOptions === 'object' && safeOptions !== null) safeOptions = Object.values(safeOptions);
@@ -379,9 +400,9 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
 
       const shuffledOptions = [...safeOptions].sort(() => Math.random() - 0.5);
       const correctIndex = shuffledOptions.findIndex(opt => opt === safeAnswer);
-      
-      return { 
-        ...q, question: safeQuestion, options: shuffledOptions, 
+
+      return {
+        ...q, question: safeQuestion, options: shuffledOptions,
         correctIndex: correctIndex !== -1 ? correctIndex : 0,
         topic: typeof q.topic === 'string' ? q.topic : JSON.stringify(q?.topic || "General")
       };
@@ -391,8 +412,8 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     setUserAnswers({});
     setFlaggedQuestions({});
     setCurrentQuestionIndex(0);
-    
-    const timePerQuestionSeconds = 52; 
+
+    const timePerQuestionSeconds = 52;
     setTimeRemaining(randomizedQuestions.length * timePerQuestionSeconds);
     setGameState('exam');
   }, [apiKeys, examConfig, examType]);
@@ -400,7 +421,15 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
   const handleAnswerSelect = useCallback((optionIndex) => { setUserAnswers(prev => ({ ...prev, [currentQuestionIndex]: optionIndex })); }, [currentQuestionIndex]);
   const nextQuestion = useCallback(() => { setCurrentQuestionIndex(prev => prev < questions.length - 1 ? prev + 1 : prev); }, [questions.length]);
   const prevQuestion = useCallback(() => { setCurrentQuestionIndex(prev => prev > 0 ? prev - 1 : prev); }, []);
-  const finishExam = useCallback(() => { clearInterval(timerRef.current); setGameState('results'); }, []);
+
+  // ── Layer 3: Update adaptive profile on exam finish ──────────────────────
+  const finishExam = useCallback(() => {
+    clearInterval(timerRef.current);
+    if (examType && questions.length > 0) {
+      updateProfile(examType, questions, userAnswers);
+    }
+    setGameState('results');
+  }, [examType, questions, userAnswers]);
 
   const keyboardStateRef = useRef({ currentQuestionIndex, questionsLength: questions.length, showGrid, showCancelModal, gameState });
   useEffect(() => { keyboardStateRef.current = { currentQuestionIndex, questionsLength: questions.length, showGrid, showCancelModal, gameState }; }, [currentQuestionIndex, questions.length, showGrid, showCancelModal, gameState]);
@@ -1150,6 +1179,63 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
           </div>
 
             <div className="space-y-8 flex flex-col">
+              {/* ── Layer 3: Adaptive Profile Widget ── */}
+              {(() => {
+                const profile = getProfileSummary(examType);
+                if (!profile || profile.sessions < 1) return null;
+                const topTopics = profile.topics.slice(0, 5);
+                return (
+                  <div className="bg-white rounded-xl shadow-md p-6 border border-slate-100">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                          <BarChart2 className="w-4 h-4 text-purple-500" /> Your Learning Profile
+                        </h4>
+                        <p className="text-xs text-slate-400 mt-0.5">{profile.sessions} session{profile.sessions !== 1 ? 's' : ''} tracked — next exam will adapt to your weak areas</p>
+                      </div>
+                      <button
+                        onClick={() => { clearProfile(examType); setGameState(g => g); }}
+                        className="text-xs text-slate-400 hover:text-red-500 transition-colors"
+                        title="Reset adaptive profile for this exam"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {topTopics.map((t, i) => (
+                        <div key={i} className="flex items-center gap-3">
+                          <div className="w-full">
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="text-xs text-slate-600 truncate pr-2 max-w-[60%]">{t.name}</span>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <span className={`text-xs font-bold ${t.errorRate > 50 ? 'text-red-600' : t.errorRate > 25 ? 'text-orange-500' : 'text-green-600'}`}>
+                                  {100 - t.errorRate}%
+                                </span>
+                                <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                                  t.trend === 'improving' ? 'bg-green-100 text-green-700' :
+                                  t.trend === 'declining' ? 'bg-red-100 text-red-700' :
+                                  t.trend === 'new' ? 'bg-blue-100 text-blue-700' :
+                                  'bg-slate-100 text-slate-500'
+                                }`}>{t.trend}</span>
+                              </div>
+                            </div>
+                            <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${t.errorRate > 50 ? 'bg-red-400' : t.errorRate > 25 ? 'bg-orange-400' : 'bg-green-400'}`}
+                                style={{ width: `${100 - t.errorRate}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {profile.topics.length > 5 && (
+                      <p className="text-xs text-slate-400 mt-3 text-center">+{profile.topics.length - 5} more topics tracked</p>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div className="bg-white rounded-xl shadow-md p-6 border border-slate-100 flex flex-col items-center text-center">
                 <h4 className="font-bold text-slate-800 mb-2">Help Validate Our AI</h4>
                 <p className="text-slate-500 text-sm mb-6">Have you recently taken the official {examType} exam? Submit your official score report text to help us improve this generator.</p>

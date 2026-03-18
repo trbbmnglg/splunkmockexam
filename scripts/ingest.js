@@ -1,275 +1,232 @@
-/**
- * scripts/ingest.js
- *
- * One-time ingestion script — run via GitHub Actions (see setup-vectorize.yml)
- *
- * What it does:
- *   1. Fetches each Splunk doc URL from splunk-urls.js
- *   2. Extracts clean text from HTML
- *   3. Chunks into ~500 token passages with overlap
- *   4. Embeds each chunk via Cloudflare AI (bge-small-en-v1.5, 384 dimensions)
- *   5. Upserts vectors into Cloudflare Vectorize with metadata
- *
- * Environment variables required:
- *   CF_API_TOKEN     — Cloudflare API token (from GitHub secret)
- *   CF_ACCOUNT_ID    — Cloudflare account ID (from GitHub secret)
- *
- * Run:
- *   node scripts/ingest.js
- */
+// scripts/ingest.js
+// Layer 2 RAG Ingestion script for Splunk Docs
 
-import { SPLUNK_DOC_URLS } from './splunk-urls.js';
+import { load } from 'cheerio';
+import { splunkDocs } from './splunk-urls.js';
 
-const CF_API_TOKEN  = process.env.CF_API_TOKEN;
 const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID;
-const INDEX_NAME    = 'splunk-docs-index';
-const CHUNK_SIZE    = 400;  // tokens (approx chars / 4)
-const CHUNK_OVERLAP = 50;   // overlap between chunks for context continuity
-const BATCH_SIZE    = 50;   // vectors per Vectorize upsert call (API limit: 1000)
-const EMBED_BATCH   = 10;   // texts per AI embedding call
+const CF_API_TOKEN = process.env.CF_API_TOKEN;
+const DRY_RUN = process.env.DRY_RUN === 'true';
+const CERT_FILTER = process.env.CERT_FILTER || '';
 
-if (!CF_API_TOKEN || !CF_ACCOUNT_ID) {
-  console.error('ERROR: CF_API_TOKEN and CF_ACCOUNT_ID environment variables are required.');
-  process.exit(1);
+const INDEX_NAME = 'splunk-docs-index';
+const MODEL_NAME = '@cf/baai/bge-small-en-v1.5';
+
+const BATCH_SIZE = 100;
+const RETRY_LIMIT = 3;
+const DELAY_BETWEEN_REQUESTS_MS = 500; // Increased delay to be gentler
+
+// Standard browser headers to avoid WAF blocking (403 Forbidden)
+const FETCH_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Cache-Control": "max-age=0",
+  "Sec-Ch-Ua": "\"Not_A Brand\";v=\"8\", \"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\"",
+  "Sec-Ch-Ua-Mobile": "?0",
+  "Sec-Ch-Ua-Platform": "\"Windows\"",
+  "Sec-Fetch-Dest": "document",
+  "Sec-Fetch-Mode": "navigate",
+  "Sec-Fetch-Site": "none",
+  "Sec-Fetch-User": "?1",
+  "Upgrade-Insecure-Requests": "1"
+};
+
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ─── Text extraction from HTML ────────────────────────────────────────────────
-function extractText(html) {
-  // Remove script, style, nav, header, footer, aside tags and their contents
-  let text = html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<nav[\s\S]*?<\/nav>/gi, '')
-    .replace(/<header[\s\S]*?<\/header>/gi, '')
-    .replace(/<footer[\s\S]*?<\/footer>/gi, '')
-    .replace(/<aside[\s\S]*?<\/aside>/gi, '')
-    // Preserve newlines at block elements
-    .replace(/<\/(p|div|h[1-6]|li|tr|td|th|section|article)>/gi, '\n')
-    .replace(/<br\s*\/?>/gi, '\n')
-    // Strip remaining tags
-    .replace(/<[^>]+>/g, ' ')
-    // Decode common HTML entities
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    // Collapse whitespace
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-
-  return text;
-}
-
-// ─── Chunk text into overlapping passages ────────────────────────────────────
-function chunkText(text, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP) {
-  // Approximate tokens as chars/4 — split on sentence boundaries where possible
-  const approxChunkChars = chunkSize * 4;
-  const approxOverlapChars = overlap * 4;
-
-  const chunks = [];
-  let start = 0;
-
-  while (start < text.length) {
-    let end = start + approxChunkChars;
-
-    if (end < text.length) {
-      // Try to end at a sentence boundary (. ! ? or \n\n)
-      const boundary = text.lastIndexOf('\n\n', end);
-      const sentEnd = Math.max(
-        text.lastIndexOf('. ', end),
-        text.lastIndexOf('! ', end),
-        text.lastIndexOf('? ', end)
-      );
-      const snap = Math.max(boundary, sentEnd);
-      if (snap > start + approxChunkChars * 0.5) {
-        end = snap + 1;
+async function fetchWithRetry(url, retries = RETRY_LIMIT) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, { headers: FETCH_HEADERS });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
+      return await response.text();
+    } catch (e) {
+      if (i === retries - 1) throw e;
+      console.log(`  Retry ${i + 1}/${retries} for ${url}`);
+      await sleep(1000 * (i + 1)); // Exponential backoff
     }
-
-    const chunk = text.slice(start, end).trim();
-    if (chunk.length > 50) { // skip tiny chunks
-      chunks.push(chunk);
-    }
-
-    start = end - approxOverlapChars;
-    if (start >= text.length) break;
   }
+}
 
+function extractContent(html) {
+  const $ = load(html);
+  
+  // Remove nav, headers, footers, scripts, styles
+  $('nav, header, footer, script, style, .toc, .breadcrumb, #comments').remove();
+  
+  // Splunk docs specific main content area
+  let content = $('.main-content').text() || $('article').text() || $('body').text();
+  
+  // Clean up whitespace
+  return content.replace(/\s+/g, ' ').trim();
+}
+
+function chunkText(text, maxWords = 200, overlapWords = 50) {
+  const words = text.split(' ');
+  const chunks = [];
+  let i = 0;
+  
+  while (i < words.length) {
+    const chunk = words.slice(i, i + maxWords).join(' ');
+    chunks.push(chunk);
+    i += (maxWords - overlapWords);
+  }
   return chunks;
 }
 
-// ─── Cloudflare AI — embed texts ─────────────────────────────────────────────
-async function embedTexts(texts) {
+async function getEmbeddings(texts) {
   const response = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/@cf/baai/bge-small-en-v1.5`,
+    `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${MODEL_NAME}`,
     {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${CF_API_TOKEN}`,
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ text: texts }),
+      body: JSON.stringify({ text: texts })
     }
   );
 
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(`AI embedding failed (${response.status}): ${err}`);
+    throw new Error(`Workers AI Error: ${err}`);
   }
 
-  const data = await response.json();
-  if (!data.success) throw new Error(`AI embedding error: ${JSON.stringify(data.errors)}`);
-
-  return data.result.data; // array of float[] vectors
+  const result = await response.json();
+  if (!result.success) {
+    throw new Error(`Workers AI API Error: ${JSON.stringify(result.errors)}`);
+  }
+  
+  return result.result.data; // Array of arrays (embeddings)
 }
 
-// ─── Cloudflare Vectorize — upsert vectors ────────────────────────────────────
-async function upsertVectors(vectors) {
-  // Vectorize upsert uses NDJSON format
+async function uploadToVectorize(vectors) {
+  // Cloudflare Vectorize expects NDJSON format for bulk inserts
   const ndjson = vectors.map(v => JSON.stringify(v)).join('\n');
-
+  
   const response = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/vectorize/v2/indexes/${INDEX_NAME}/upsert`,
+    `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/vectorize/v2/indexes/${INDEX_NAME}/insert`,
     {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${CF_API_TOKEN}`,
-        'Content-Type': 'application/x-ndjson',
+        'Content-Type': 'application/x-ndjson'
       },
-      body: ndjson,
+      body: ndjson
     }
   );
 
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(`Vectorize upsert failed (${response.status}): ${err}`);
+    throw new Error(`Vectorize Upload Error: ${err}`);
   }
 
-  const data = await response.json();
-  if (!data.success) throw new Error(`Vectorize error: ${JSON.stringify(data.errors)}`);
-  return data.result;
-}
-
-// ─── Fetch a single URL with retry ────────────────────────────────────────────
-async function fetchWithRetry(url, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const res = await fetch(url, {
-        headers: { 'User-Agent': 'SplunkMockExam-Ingestion/1.0 (educational use)' }
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.text();
-    } catch (err) {
-      if (i === retries - 1) throw err;
-      console.log(`  Retry ${i + 1}/${retries} for ${url}`);
-      await new Promise(r => setTimeout(r, 2000 * (i + 1)));
-    }
+  const result = await response.json();
+  if (!result.success) {
+    throw new Error(`Vectorize API Error: ${JSON.stringify(result.errors)}`);
   }
+  return result;
 }
 
-// ─── Sleep helper ─────────────────────────────────────────────────────────────
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
-// ─── Main ingestion pipeline ──────────────────────────────────────────────────
-async function ingest() {
-  console.log('=== Splunk MockTest — Layer 2 Ingestion ===\n');
+async function main() {
+  console.log('=== Splunk MockTest — Layer 2 Ingestion ===');
   console.log(`Index: ${INDEX_NAME}`);
-  console.log(`Total doc entries: ${SPLUNK_DOC_URLS.length}`);
-  console.log(`Total URLs: ${SPLUNK_DOC_URLS.reduce((s, e) => s + e.urls.length, 0)}\n`);
+  
+  let docsToProcess = splunkDocs;
+  if (CERT_FILTER) {
+    docsToProcess = splunkDocs.filter(cert => cert.cert === CERT_FILTER);
+  }
 
-  let totalChunks = 0;
-  let totalVectors = 0;
-  let vectorBuffer = []; // collect vectors before batch upsert
-  let vectorId = 0;
+  const totalUrls = docsToProcess.reduce((sum, cert) => sum + cert.urls.length, 0);
+  console.log(`Total doc entries: ${docsToProcess.length}`);
+  console.log(`Total URLs: ${totalUrls}`);
 
-  for (const entry of SPLUNK_DOC_URLS) {
-    console.log(`\n[${entry.certType}] ${entry.topic}`);
+  let allVectors = [];
+  let processedCount = 0;
 
-    for (const url of entry.urls) {
+  for (const cert of docsToProcess) {
+    console.log(`\n[${cert.cert}] ${cert.topic}`);
+    
+    for (const url of cert.urls) {
       console.log(`  Fetching: ${url}`);
-
-      let html;
       try {
-        html = await fetchWithRetry(url);
-      } catch (err) {
-        console.warn(`  SKIP — fetch failed: ${err.message}`);
-        continue;
-      }
-
-      // Extract and chunk
-      const text = extractText(html);
-      if (text.length < 100) {
-        console.warn(`  SKIP — extracted text too short (${text.length} chars)`);
-        continue;
-      }
-
-      const chunks = chunkText(text);
-      console.log(`  → ${chunks.length} chunks from ${text.length} chars`);
-      totalChunks += chunks.length;
-
-      // Embed in batches
-      for (let b = 0; b < chunks.length; b += EMBED_BATCH) {
-        const batch = chunks.slice(b, b + EMBED_BATCH);
-
-        let embeddings;
-        try {
-          embeddings = await embedTexts(batch);
-        } catch (err) {
-          console.warn(`  SKIP embed batch — ${err.message}`);
-          continue;
-        }
-
-        // Build vector objects
-        for (let j = 0; j < batch.length; j++) {
-          vectorId++;
-          vectorBuffer.push({
-            id: `splunk_${vectorId}`,
-            values: embeddings[j],
+        const html = await fetchWithRetry(url);
+        const text = extractContent(html);
+        const chunks = chunkText(text);
+        
+        console.log(`  -> Extracted ${chunks.length} chunks`);
+        
+        for (let i = 0; i < chunks.length; i++) {
+          allVectors.push({
+            id: `${cert.cert.replace(/\s/g, '-')}-${Date.now()}-${processedCount}-${i}`,
+            text: chunks[i], // We temporarily store text here to embed later
             metadata: {
-              text: batch[j].slice(0, 1000), // store first 1000 chars for retrieval
-              certType: entry.certType,
-              topic: entry.topic,
-              url,
-              chunkIndex: b + j,
+              cert: cert.cert,
+              topic: cert.topic,
+              url: url
             }
           });
         }
-
-        // Upsert when buffer reaches batch size
-        if (vectorBuffer.length >= BATCH_SIZE) {
-          process.stdout.write(`  Upserting ${vectorBuffer.length} vectors... `);
-          const result = await upsertVectors(vectorBuffer);
-          console.log(`✓ (${result.count} stored)`);
-          totalVectors += vectorBuffer.length;
-          vectorBuffer = [];
-          await sleep(500); // rate limit courtesy pause
-        }
-
-        await sleep(200); // pause between embed calls
+        processedCount++;
+        await sleep(DELAY_BETWEEN_REQUESTS_MS); // Be nice to Splunk servers
+      } catch (e) {
+        console.error(`  SKIP — fetch failed: ${e.message}`);
       }
-
-      await sleep(1000); // pause between URL fetches (be nice to Splunk docs)
     }
   }
 
-  // Flush remaining vectors
-  if (vectorBuffer.length > 0) {
-    process.stdout.write(`\nFinal upsert: ${vectorBuffer.length} vectors... `);
-    const result = await upsertVectors(vectorBuffer);
-    console.log(`✓ (${result.count} stored)`);
-    totalVectors += vectorBuffer.length;
+  if (allVectors.length === 0) {
+    console.log('\nNo chunks extracted. Exiting.');
+    return;
   }
 
-  console.log('\n=== Ingestion Complete ===');
-  console.log(`Total chunks processed: ${totalChunks}`);
-  console.log(`Total vectors stored:   ${totalVectors}`);
-  console.log(`\nVectorize index "${INDEX_NAME}" is ready for retrieval.`);
+  console.log(`\nTotal chunks to embed: ${allVectors.length}`);
+
+  if (DRY_RUN) {
+    console.log('\nDRY RUN: Skipping embedding and upload.');
+    return;
+  }
+
+  // Process in batches
+  console.log('\nStarting Embedding and Upload...');
+  let totalUploaded = 0;
+
+  for (let i = 0; i < allVectors.length; i += BATCH_SIZE) {
+    const batch = allVectors.slice(i, i + BATCH_SIZE);
+    console.log(`Processing batch ${Math.floor(i/BATCH_SIZE) + 1} (${batch.length} items)...`);
+    
+    try {
+      // 1. Get embeddings
+      const texts = batch.map(b => b.text);
+      const embeddings = await getEmbeddings(texts);
+      
+      // 2. Format for Vectorize
+      const vectorizePayload = batch.map((item, idx) => ({
+        id: item.id,
+        values: embeddings[idx],
+        namespace: item.metadata.cert.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase(), // clean namespace
+        metadata: {
+          ...item.metadata,
+          text: item.text // Store original text for retrieval
+        }
+      }));
+
+      // 3. Upload
+      await uploadToVectorize(vectorizePayload);
+      totalUploaded += batch.length;
+      console.log(`  Uploaded ${batch.length} vectors.`);
+      
+    } catch (e) {
+      console.error(`  Batch failed: ${e.message}`);
+    }
+  }
+
+  console.log(`\n=== Ingestion Complete ===`);
+  console.log(`Successfully embedded and uploaded ${totalUploaded}/${allVectors.length} chunks.`);
 }
 
-ingest().catch(err => {
-  console.error('\nFATAL:', err.message);
-  process.exit(1);
-});
+main().catch(console.error);

@@ -26,12 +26,13 @@ CREATE TABLE IF NOT EXISTS wrong_answers (
   user_id       TEXT    NOT NULL,
   exam_type     TEXT    NOT NULL,
   topic         TEXT    NOT NULL,
-  question_hash TEXT    NOT NULL,  -- SHA-1 of question text for dedup
+  question_hash TEXT    NOT NULL,
   question      TEXT    NOT NULL,
   correct_answer TEXT   NOT NULL,
   times_missed  INTEGER NOT NULL DEFAULT 1,
   last_missed   TEXT    NOT NULL,
-  next_review   TEXT    NOT NULL  -- ISO date for spaced repetition
+  next_review   TEXT    NOT NULL,
+  UNIQUE(user_id, exam_type, topic, question_hash)
 );
 
 -- Community aggregated stats (anonymized)

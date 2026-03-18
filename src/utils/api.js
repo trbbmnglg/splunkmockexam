@@ -114,14 +114,28 @@ export const generateDynamicQuestions = async (examType, config, apiKey) => {
   }
 
   const promptText = `${config.customPrompt}
-  
-CRITICAL OUTPUT REQUIREMENT:
-Output MUST be a raw JSON array of objects ONLY. Do not include markdown formatting like \`\`\`json, introductions, or explanations.
-Each object must have the following exact keys:
-- "question": (string) The exam question text
-- "options": (array of exactly 4 strings) The multiple choice options
-- "answer": (string) The correct answer (MUST exactly match one of the options)
-- "topic": (string) The specific exam topic this question covers`;
+
+OUTPUT FORMAT — return ONLY a raw JSON array. No markdown, no \`\`\`json fences, no explanation text before or after.
+Each element must have exactly these keys:
+- "question": string — the question text only, no option labels (A/B/C/D) embedded
+- "options": array of exactly 4 strings — each option is a complete phrase or sentence, grammatically parallel, similar length (within ~10 words of each other)
+- "answer": string — must be an exact character-for-character match of one element in "options"
+- "topic": string — the specific blueprint topic domain this question covers
+
+Example of correctly formatted output:
+[
+  {
+    "question": "Which Splunk component is responsible for storing indexed data?",
+    "options": [
+      "The indexer, which stores compressed raw data and index files",
+      "The search head, which coordinates search across multiple peers",
+      "The forwarder, which buffers and transmits events to indexers",
+      "The deployment server, which manages app distribution to forwarders"
+    ],
+    "answer": "The indexer, which stores compressed raw data and index files",
+    "topic": "Splunk Basics"
+  }
+]`;
 
   try {
     let responseText = "";
@@ -130,14 +144,14 @@ Each object must have the following exact keys:
       const data = await fetchWithRetry(`https://api.perplexity.ai/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveKey}` },
-        body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "You output JSON arrays ONLY." }, { role: "user", content: promptText }] })
+        body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "You are a Splunk certification exam author. Follow the user instructions precisely and return only valid JSON." }, { role: "user", content: promptText }] })
       });
       responseText = data.choices?.[0]?.message?.content;
     } else if (provider === 'llama') {
       const data = await fetchWithRetry(`https://api.groq.com/openai/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveKey}` },
-        body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "system", content: "You output valid JSON arrays ONLY." }, { role: "user", content: promptText }] })
+        body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "system", content: "You are a Splunk certification exam author. Follow the user instructions precisely and return only valid JSON." }, { role: "user", content: promptText }] })
       });
       responseText = data.choices?.[0]?.message?.content;
     } else if (provider === 'qwen') {
@@ -149,7 +163,7 @@ Each object must have the following exact keys:
           'HTTP-Referer': typeof window !== 'undefined' ? window.location.href : '',
           'X-Title': 'Splunk Mock Exam Generator'
         },
-        body: JSON.stringify({ model: "qwen/qwen-2.5-72b-instruct", messages: [{ role: "system", content: "You output valid JSON arrays ONLY." }, { role: "user", content: promptText }] })
+        body: JSON.stringify({ model: "qwen/qwen-2.5-72b-instruct", messages: [{ role: "system", content: "You are a Splunk certification exam author. Follow the user instructions precisely and return only valid JSON." }, { role: "user", content: promptText }] })
       });
       responseText = data.choices?.[0]?.message?.content;
     } else if (provider === 'gemini') {

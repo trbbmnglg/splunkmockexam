@@ -307,6 +307,7 @@ export default function App() {
   const [gameState, setGameState] = useState('menu'); 
   const [viewMode, setViewMode] = useState('grid');
   const [examType, setExamType] = useState(null);
+  const [profileVersion, setProfileVersion] = useState(0); // increment to force profile re-read
   
   const [apiKeys, setApiKeys] = useState(() => {
     const VALID_PROVIDERS = { perplexity: '', gemini: '', llama: DEFAULT_GROQ_KEY, qwen: '' };
@@ -366,13 +367,14 @@ export default function App() {
     // Blueprint topic distribution — inject real percentages if available
     let topicDistribution = '';
     if (topics.length > 0) {
-      // User has manually selected specific topics — distribute evenly across them
-      const perTopic = Math.ceil(num / topics.length);
+      // Distribute num questions evenly across selected topics, spreading remainder
+      const base = Math.floor(num / topics.length);
+      const remainder = num % topics.length;
       const distribution = topics.map((t, i) => {
-        const count = i < num % topics.length || num % topics.length === 0 ? perTopic : perTopic;
-        return `  - "${t}"`;
+        const count = base + (i < remainder ? 1 : 0);
+        return `  - "${t}": ${count} question${count !== 1 ? 's' : ''}`;
       }).join('\n');
-      topicDistribution = `The candidate has chosen to focus on these specific topics. Distribute the ${num} questions as evenly as possible across ALL of them — do NOT cluster multiple questions around the same concept within a topic:
+      topicDistribution = `The candidate has chosen to focus on these specific topics. Distribute the ${num} questions using these exact counts:
 ${distribution}
 
 CRITICAL DIVERSITY RULE: Each question must test a DIFFERENT specific concept, command, setting, or scenario. If a topic has multiple questions, they must cover different sub-concepts. Never generate two questions that differ only in a number, threshold, or port value.`;
@@ -1315,6 +1317,8 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
               {/* ── Layer 3: Adaptive Profile Widget ── */}
               {(() => {
                 const profile = getProfileSummary(examType);
+                // profileVersion in deps ensures re-read after clearProfile()
+                void profileVersion;
                 if (!profile || profile.sessions < 1) return null;
                 const topTopics = profile.topics.slice(0, 5);
                 return (
@@ -1327,7 +1331,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
                         <p className="text-xs text-slate-400 mt-0.5">{profile.sessions} session{profile.sessions !== 1 ? 's' : ''} tracked — next exam will adapt to your weak areas</p>
                       </div>
                       <button
-                        onClick={() => { clearProfile(examType); setGameState(g => g); }}
+                        onClick={() => { clearProfile(examType); setProfileVersion(v => v + 1); }}
                         className="text-xs text-slate-400 hover:text-red-500 transition-colors"
                         title="Reset adaptive profile for this exam"
                       >

@@ -357,12 +357,25 @@ export default function App() {
 
   const timerRef = useRef(null);
 
-  // Helper: build 4 options including the correct answer with 3 plausible-looking distractors
-  // Used when reconstructing questions from D1 wrong answer bank (which only stores correct_answer)
+  // Helper: build 4 options for D1-sourced questions that only store correct_answer
+  // Generates plausible-sounding distractors so the question is still meaningful
   const shuffleWithCorrect = (correctAnswer) => {
-    // We only have the correct answer from D1 — return it as sole option
-    // The map below will shuffle and set correctIndex correctly
-    return [correctAnswer, `${correctAnswer} (incorrect)`, 'None of the listed options', 'All configuration defaults apply'];
+    // Generic Splunk-plausible distractors that work across topics
+    // These will appear alongside the real correct answer from D1
+    const distractors = [
+      'This is configured automatically by Splunk at startup',
+      'This setting is managed exclusively through the Splunk Web UI',
+      'This requires a restart of the Splunk service to take effect',
+      'This is handled by the deployment server and cannot be manually set',
+      'This option is only available in Splunk Cloud, not Splunk Enterprise',
+      'This is defined in the outputs.conf file, not the inputs.conf file',
+    ];
+    // Pick 3 unique distractors that don't overlap with the correct answer
+    const picked = distractors
+      .filter(d => d.toLowerCase() !== correctAnswer.toLowerCase())
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 3);
+    return [correctAnswer, ...picked];
   };
 
   const buildAgenticPrompt = useCallback((type, num, topics, provider) => {
@@ -1317,7 +1330,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
               <p className="text-slate-600 mb-6">Are you sure you want to cancel? All your current progress will be lost.</p>
               <div className="flex space-x-4">
                 <button onClick={() => setShowCancelModal(false)} className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-semibold transition-colors">Resume</button>
-                <button onClick={() => { setShowCancelModal(false); setGameState('menu'); }} className="flex-1 px-4 py-3 bg-red-500 hover:bg-red-600 text-white rounded font-semibold transition-colors">Yes, Cancel</button>
+                <button onClick={() => { setShowCancelModal(false); setIsReviewMode(false); setReviewQuestionHashes([]); setGameState('menu'); }} className="flex-1 px-4 py-3 bg-red-500 hover:bg-red-600 text-white rounded font-semibold transition-colors">Yes, Cancel</button>
               </div>
             </div>
           </div>

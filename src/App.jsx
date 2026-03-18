@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Clock, CheckCircle, XCircle, AlertTriangle, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, BookOpen, Award, RotateCcw, ShieldCheck, Flag, X, LayoutGrid, AlertCircle, Settings, Infinity, ListChecks, ExternalLink, Zap, Cloud, Server, Building, Briefcase, List, Cpu, Key, Lock, Star, Globe, LineChart, Target, Shield, FileText, Send, MessageSquare, CalendarCheck, BarChart2, Timer, GraduationCap, BadgeCheck } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, AlertTriangle, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, BookOpen, Award, RotateCcw, ShieldCheck, Flag, X, LayoutGrid, AlertCircle, Settings, Infinity, ListChecks, ExternalLink, Zap, Cloud, Server, Building, Briefcase, List, Cpu, Key, Lock, Star, Globe, LineChart, Target, Shield, FileText, Send, MessageSquare, CalendarCheck, BarChart2, Timer, GraduationCap, BadgeCheck, Flame, Users, RefreshCw } from 'lucide-react';
 
 import { CURRENT_YEAR, YEAR_RANGE, TOPICS, CERT_CARDS, TOPIC_LINKS, API_KEY_URLS, PRODUCT_CONTEXT_MAP, EXAM_BLUEPRINTS } from './utils/constants';
 import { DEFAULT_GROQ_KEY, CF_WEBHOOK_URL, CF_WEBHOOK_TOKEN, validateSubmissionWithAI, generateDynamicQuestions } from './utils/api';
 import { runValidationPipeline } from './utils/agentValidator';
-import { updateProfile, buildAdaptiveContext, getProfileSummary, clearProfile, getUserId, loadProfile } from './utils/agentAdaptive';
+import { updateProfile, buildAdaptiveContext, getProfileSummary, clearProfile, getUserId, loadProfile, getCommunityStats, getWrongAnswerBank, clearReviewedAnswers } from './utils/agentAdaptive';
 import { fetchExplanation } from './utils/agentExplainer';
 
 // ─── Consent section definitions ───────────────────────────────────────────
@@ -317,6 +317,9 @@ export default function App() {
   const [viewMode, setViewMode] = useState('grid');
   const [examType, setExamType] = useState(null);
   const [profileVersion, setProfileVersion] = useState(0); // increment to force profile re-read
+  const [communityStats, setCommunityStats] = useState({}); // { [examType]: { topics: [...] } }
+  const [isReviewMode, setIsReviewMode] = useState(false); // true when exam is a review session
+  const [reviewQuestionHashes, setReviewQuestionHashes] = useState([]); // hashes of D1 questions to clear after review
   
   const [apiKeys, setApiKeys] = useState(() => {
     const VALID_PROVIDERS = { perplexity: '', gemini: '', llama: DEFAULT_GROQ_KEY, qwen: '' };
@@ -353,6 +356,14 @@ export default function App() {
   const [feedbackForm, setFeedbackForm] = useState({ exam: '', status: 'pass', evidence: '', feedback: '' });
 
   const timerRef = useRef(null);
+
+  // Helper: build 4 options including the correct answer with 3 plausible-looking distractors
+  // Used when reconstructing questions from D1 wrong answer bank (which only stores correct_answer)
+  const shuffleWithCorrect = (correctAnswer) => {
+    // We only have the correct answer from D1 — return it as sole option
+    // The map below will shuffle and set correctIndex correctly
+    return [correctAnswer, `${correctAnswer} (incorrect)`, 'None of the listed options', 'All configuration defaults apply'];
+  };
 
   const buildAgenticPrompt = useCallback((type, num, topics, provider) => {
     if (!type) return "";
@@ -461,6 +472,8 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
                 console.warn('[App] Profile update on timeout failed:', err.message)
               );
             }
+            setIsReviewMode(false);
+            setReviewQuestionHashes([]);
             setGameState('results');
             return 0;
           }
@@ -479,6 +492,19 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
       setFeedbackState({ loading: false, success: false, error: null });
     }
   }, [showFeedbackModal]);
+
+  // Fetch community stats for all cert types when menu is shown
+  useEffect(() => {
+    if (gameState !== 'menu') return;
+    const CERT_IDS = Object.keys(EXAM_BLUEPRINTS);
+    CERT_IDS.forEach(async (id) => {
+      if (communityStats[id]) return; // already fetched
+      const data = await getCommunityStats(id);
+      if (data?.topics?.length > 0) {
+        setCommunityStats(prev => ({ ...prev, [id]: data }));
+      }
+    });
+  }, [gameState]);
 
   const handleSelectExamType = useCallback(async (selectedType) => {
     setExamType(selectedType);
@@ -589,8 +615,106 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
         console.warn('[App] Profile update failed:', err.message)
       );
     }
+    // If this was a review session, clear the reviewed questions from D1
+    if (isReviewMode && reviewQuestionHashes.length > 0) {
+      clearReviewedAnswers(examType, reviewQuestionHashes);
+    }
+    setIsReviewMode(false);
+    setReviewQuestionHashes([]);
     setGameState('results');
-  }, [examType, questions, userAnswers]);
+  }, [examType, questions, userAnswers, isReviewMode, reviewQuestionHashes]);
+
+  // ── Week 3: Launch a review session from the results page ───────────────
+  const handleStartReview = useCallback(async () => {
+    if (!examType) return;
+
+    setGameState('loading');
+    setLoadingText('Fetching your wrong answers from review bank...');
+
+    // 1. Pull due wrong answers from D1
+    const { wrongAnswers: dueItems } = await getWrongAnswerBank(examType, false);
+
+    if (!dueItems || dueItems.length === 0) {
+      setApiError('No wrong answers found in your review bank yet. Complete an exam first to build your bank.');
+      setGameState('results');
+      return;
+    }
+
+    // 2. Build original questions from D1 bank (reconstruct exam-compatible shape)
+    const originalQuestions = dueItems.slice(0, 15).map(item => ({
+      question: item.question,
+      options: shuffleWithCorrect(item.correct_answer),
+      correctIndex: 0, // will be set after shuffle below
+      answer: item.correct_answer,
+      topic: item.topic,
+      _hash: item.question_hash
+    })).map(q => {
+      const shuffled = [...q.options].sort(() => Math.random() - 0.5);
+      return { ...q, options: shuffled, correctIndex: shuffled.indexOf(q.answer) };
+    });
+
+    const hashes = originalQuestions.map(q => q._hash).filter(Boolean);
+
+    // 3. Identify weak topics from the due items
+    const topicErrors = {};
+    dueItems.forEach(item => {
+      topicErrors[item.topic] = (topicErrors[item.topic] || 0) + item.times_missed;
+    });
+    const weakTopics = Object.entries(topicErrors)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([topic]) => topic);
+
+    // 4. Generate fresh AI questions on weak topics to fill the rest (50/50 split)
+    const aiCount = Math.min(originalQuestions.length, 15);
+    let aiQuestions = [];
+
+    if (weakTopics.length > 0 && aiCount > 0) {
+      setLoadingText(`Generating ${aiCount} fresh questions on your weak topics...`);
+      const reviewConfig = {
+        ...examConfig,
+        numQuestions: aiCount,
+        selectedTopics: weakTopics,
+        customPrompt: buildAgenticPrompt(examType, aiCount, weakTopics, examConfig.aiProvider)
+      };
+      const groqKey = apiKeys['llama'] || DEFAULT_GROQ_KEY;
+      const { questions: fetched } = await generateDynamicQuestions(examType, reviewConfig, groqKey);
+
+      if (fetched?.length > 0) {
+        const bp = EXAM_BLUEPRINTS[examType];
+        const { questions: refined } = await runValidationPipeline(
+          fetched, examType, bp?.level || 'Intermediate-Level', groqKey,
+          (msg) => setLoadingText(msg)
+        );
+        aiQuestions = refined.map(q => {
+          const safeAnswer = typeof q.answer === 'string' ? q.answer : '';
+          let opts = Array.isArray(q.options) ? q.options.map(o => typeof o === 'string' ? o : '') : ['A', 'B', 'C', 'D'];
+          while (opts.length < 4) opts.push(`Option ${opts.length + 1}`);
+          const shuffled = [...opts].sort(() => Math.random() - 0.5);
+          return { ...q, options: shuffled, correctIndex: shuffled.indexOf(safeAnswer) !== -1 ? shuffled.indexOf(safeAnswer) : 0 };
+        });
+      }
+    }
+
+    // 5. Merge and shuffle the combined set
+    const combined = [...originalQuestions, ...aiQuestions].sort(() => Math.random() - 0.5);
+
+    if (combined.length === 0) {
+      setApiError('Could not build a review session. Please try again.');
+      setGameState('results');
+      return;
+    }
+
+    // 6. Launch the exam
+    setIsReviewMode(true);
+    setReviewQuestionHashes(hashes);
+    setQuestions(combined);
+    setUserAnswers({});
+    setFlaggedQuestions({});
+    setCurrentQuestionIndex(0);
+    setTimeRemaining(combined.length * 52);
+    setGameState('exam');
+  }, [examType, examConfig, apiKeys, buildAgenticPrompt]);
 
   const keyboardStateRef = useRef({ currentQuestionIndex, questionsLength: questions.length, showGrid, showCancelModal, gameState });
   useEffect(() => { keyboardStateRef.current = { currentQuestionIndex, questionsLength: questions.length, showGrid, showCancelModal, gameState }; }, [currentQuestionIndex, questions.length, showGrid, showCancelModal, gameState]);
@@ -919,6 +1043,8 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
       <div className={`w-full max-w-6xl ${viewMode === 'grid' ? 'grid md:grid-cols-2 lg:grid-cols-3 gap-6' : 'flex flex-col space-y-4'}`}>
         {CERT_CARDS.map((cert) => {
           const Icon = cert.icon;
+          const stats = communityStats[cert.id];
+          const hardestTopics = stats?.topics?.slice(0, 3) || [];
           return (
             <div key={cert.id} onClick={() => handleSelectExamType(cert.id)}
               className={`bg-white p-6 shadow-md border-t-4 ${cert.theme.border} hover:shadow-xl transition-all cursor-pointer group transform hover:-translate-y-1 rounded-b-lg
@@ -928,7 +1054,27 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
                 <h2 className={`text-xl font-bold text-slate-800 ${cert.theme.hoverText} transition-colors leading-tight`}>{cert.title}</h2>
                 <Icon className={`${cert.theme.text} w-8 h-8 flex-shrink-0 ml-3 ${viewMode === 'list' && 'hidden md:block'}`} />
               </div>
-              <p className={`text-slate-500 text-sm ${viewMode === 'grid' ? 'mb-6 flex-grow' : 'flex-grow md:mb-0'}`}>{cert.desc}</p>
+              <p className={`text-slate-500 text-sm ${viewMode === 'grid' ? 'mb-4 flex-grow' : 'flex-grow md:mb-0'}`}>{cert.desc}</p>
+
+              {/* Community difficulty heatmap — only shown when D1 has data */}
+              {hardestTopics.length > 0 && (
+                <div className={`${viewMode === 'grid' ? 'mb-4' : 'md:mb-0 md:w-48 flex-shrink-0'}`}>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <Users className="w-3 h-3 text-slate-400" />
+                    <span className="text-xs text-slate-400 font-medium uppercase tracking-wide">Community finds hardest</span>
+                  </div>
+                  <div className="space-y-1">
+                    {hardestTopics.map((t, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Flame className={`w-3 h-3 flex-shrink-0 ${t.errorRate >= 60 ? 'text-red-500' : t.errorRate >= 40 ? 'text-orange-400' : 'text-yellow-400'}`} />
+                        <span className="text-xs text-slate-600 truncate">{t.topic}</span>
+                        <span className={`text-xs font-bold ml-auto flex-shrink-0 ${t.errorRate >= 60 ? 'text-red-500' : t.errorRate >= 40 ? 'text-orange-500' : 'text-yellow-600'}`}>{t.errorRate}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <button className={`${cert.theme.bg} ${cert.theme.text} font-semibold py-2.5 px-6 rounded ${cert.theme.hoverBg} group-hover:text-white transition-colors flex items-center justify-center 
                 ${viewMode === 'grid' ? 'w-full mt-auto' : 'w-full md:w-auto md:flex-shrink-0 whitespace-nowrap'}`}>
                 Configure Exam <Settings className="ml-2 w-4 h-4" />
@@ -1157,6 +1303,13 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
 
     return (
       <div className="max-w-4xl mx-auto w-full animate-fade-in pb-20 relative">
+        {/* Review mode indicator */}
+        {isReviewMode && (
+          <div className="mb-4 flex items-center gap-2 bg-orange-50 border border-orange-200 text-orange-700 text-sm font-semibold px-4 py-2.5 rounded-lg">
+            <RefreshCw className="w-4 h-4 flex-shrink-0" />
+            Review Session — Mixed missed questions + fresh AI questions on your weak topics
+          </div>
+        )}
         {showCancelModal && (
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
             <div className="bg-white p-6 max-w-md w-full shadow-2xl animate-fade-in rounded-lg">
@@ -1403,6 +1556,33 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
                     {profile.topics.length > 5 && (
                       <p className="text-xs text-slate-400 mt-3 text-center">+{profile.topics.length - 5} more topics tracked</p>
                     )}
+                  </div>
+                );
+              })()}
+
+              {/* ── Week 3: Review Weak Topics button ── */}
+              {(() => {
+                const wrongCount = questions.filter((q, idx) => userAnswers[idx] !== q.correctIndex).length;
+                if (wrongCount === 0) return null;
+                return (
+                  <div className="bg-white rounded-xl shadow-md p-6 border border-orange-100">
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+                        <RefreshCw className="w-6 h-6 text-orange-600" />
+                      </div>
+                      <div className="flex-grow min-w-0">
+                        <h4 className="font-bold text-slate-800">Review Weak Topics</h4>
+                        <p className="text-slate-500 text-sm mt-1 mb-4">
+                          Launch a focused session mixing your {wrongCount} missed question{wrongCount !== 1 ? 's' : ''} with fresh AI questions on the same weak topics.
+                        </p>
+                        <button
+                          onClick={handleStartReview}
+                          className="w-full flex items-center justify-center px-6 py-3 rounded-lg font-bold bg-orange-500 text-white hover:bg-orange-600 transition-colors shadow-md"
+                        >
+                          <RefreshCw className="w-4 h-4 mr-2" /> Start Review Session
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 );
               })()}

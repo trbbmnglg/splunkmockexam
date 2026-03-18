@@ -101,8 +101,9 @@ export const generateDynamicQuestions = async (examType, config, apiKey) => {
     };
   }
 
-  // Scale max_tokens to question count — each question ~300 tokens, add 20% buffer
-  const outputTokens = Math.ceil(config.numQuestions * 300 * 1.2);
+  // Scale max_tokens to question count — each question ~500 tokens (verbose parallel options), 30% buffer
+  // Floor of 4096 ensures small question sets never get truncated either
+  const outputTokens = Math.max(4096, Math.ceil(config.numQuestions * 500 * 1.3));
 
   const promptText = `${config.customPrompt}
 

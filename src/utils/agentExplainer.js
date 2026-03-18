@@ -87,9 +87,9 @@ Return ONLY valid JSON, no markdown:
           { role: 'user', content: prompt }
         ],
         temperature: 0.3,
-        max_tokens: 400
+        max_tokens: 600
       })
-    });
+    }, 2, 15000); // maxRetries=2, timeout=15s — explainer is non-critical, fail fast
 
     let text = response.choices?.[0]?.message?.content || '{}';
     text = text.replace(/```json|```/g, '').trim();

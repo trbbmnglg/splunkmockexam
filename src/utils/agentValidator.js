@@ -1,21 +1,11 @@
 /**
  * agentValidator.js — Layer 1: Self-Validation & Refinement Agent
- *
- * After the generator produces questions, this agent:
- *   1. Reviews every question against a strict quality rubric
- *   2. Returns a list of failures with specific reasons
- *   3. Regenerates only the failed questions (up to MAX_RETRY_CYCLES)
- *   4. Merges refined questions back into the set
- *
- * The generator is never called for questions that already passed —
- * only the specific failed indexes are regenerated.
  */
 
-import { fetchWithRetry, getFallbackQuestions } from './api.js';
+import { fetchWithRetry } from './api.js';
 
 const MAX_RETRY_CYCLES = 2;
 
-// ─── Step 1: Validate a full question set ────────────────────────────────────
 export const validateQuestions = async (questions, examType, blueprintLevel, apiKey) => {
   if (!questions || questions.length === 0) return [];
 
@@ -61,21 +51,17 @@ Format:
 
     let text = response.choices?.[0]?.message?.content || '[]';
     text = text.replace(/```json|```/g, '').trim();
-
-    // Extract JSON array safely
     const start = text.indexOf('[');
     const end = text.lastIndexOf(']');
     if (start === -1 || end === -1) return [];
-
     const failures = JSON.parse(text.substring(start, end + 1));
     return Array.isArray(failures) ? failures : [];
   } catch (err) {
     console.warn('[Validator] Validation call failed, skipping:', err.message);
-    return []; // Non-fatal — if validator fails, proceed with original questions
+    return [];
   }
 };
 
-// ─── Step 2: Regenerate only the failed questions ────────────────────────────
 const regenerateFailedQuestions = async (failures, originalQuestions, examType, blueprintLevel, apiKey) => {
   if (failures.length === 0) return [];
 
@@ -143,7 +129,6 @@ Example:
     const start = text.indexOf('[');
     const end = text.lastIndexOf(']');
     if (start === -1 || end === -1) return [];
-
     const replacements = JSON.parse(text.substring(start, end + 1));
     return Array.isArray(replacements) ? replacements : [];
   } catch (err) {
@@ -152,7 +137,6 @@ Example:
   }
 };
 
-// ─── Step 3: Merge replacements back into the question set ───────────────────
 const mergeReplacements = (questions, replacements) => {
   const merged = [...questions];
   for (const replacement of replacements) {
@@ -169,26 +153,13 @@ const mergeReplacements = (questions, replacements) => {
   return merged;
 };
 
-// ─── Main export: Full validate-and-refine pipeline ──────────────────────────
-/**
- * Runs up to MAX_RETRY_CYCLES of validate → regenerate → merge.
- *
- * @param {Array}    questions     - Initial generated questions
- * @param {string}   examType      - e.g. "User", "Power User"
- * @param {string}   blueprintLevel - e.g. "Entry-Level"
- * @param {string}   apiKey        - Groq API key
- * @param {Function} onProgress    - Callback(message) for UI loading text updates
- * @returns {Object} { questions: Array, validationLog: Array }
- */
 export const runValidationPipeline = async (questions, examType, blueprintLevel, apiKey, onProgress) => {
   let current = [...questions];
   const log = [];
 
   for (let cycle = 1; cycle <= MAX_RETRY_CYCLES; cycle++) {
     onProgress?.(`Validating question quality (pass ${cycle}/${MAX_RETRY_CYCLES})...`);
-
     const failures = await validateQuestions(current, examType, blueprintLevel, apiKey);
-
     log.push({ cycle, failureCount: failures.length, failures });
 
     if (failures.length === 0) {
@@ -197,13 +168,11 @@ export const runValidationPipeline = async (questions, examType, blueprintLevel,
     }
 
     onProgress?.(`Refining ${failures.length} question(s) that failed review...`);
-
     const replacements = await regenerateFailedQuestions(failures, current, examType, blueprintLevel, apiKey);
 
     if (replacements.length > 0) {
       current = mergeReplacements(current, replacements);
     } else {
-      // Regeneration failed — keep originals and stop retrying
       console.warn(`[Validator] Cycle ${cycle}: regeneration produced no replacements, keeping originals.`);
       break;
     }

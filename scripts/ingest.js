@@ -129,14 +129,15 @@ async function getEmbeddings(texts) {
 }
 
 // ── Deterministic vector ID based on URL + chunk index ───────────────────────
-// Using a stable ID means re-runs can check if chunk-0 already exists and skip
-// the entire URL. No external state file needed.
+// Vectorize hard limit: 64 bytes per ID. We cap the slug at 55 chars to leave
+// room for the "-NNN" suffix (1 dash + up to 3 digits = 4 bytes max → 59 total).
 function urlToSlug(url) {
   return url
     .replace(/^https?:\/\/[^/]+\/Documentation\//, '')
+    .replace(/^https?:\/\/help\.splunk\.com\/en\//, '')
     .replace(/[^a-zA-Z0-9]/g, '-')
     .toLowerCase()
-    .slice(0, 80); // keep IDs short
+    .slice(0, 55); // strict cap: 55 + "-" + up to 3 digits = 59 ≤ 64
 }
 
 function chunkId(url, chunkIndex) {

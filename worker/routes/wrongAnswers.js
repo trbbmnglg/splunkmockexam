@@ -39,6 +39,9 @@ export async function handleWrongAnswers(request, env, ok, err) {
   if (request.method === 'POST') {
     return postWrongAnswers(request, env, ok, err);
   }
+  if (request.method === 'DELETE') {
+    return deleteWrongAnswers(request, env, ok, err);
+  }
   return err('Method not allowed', 405);
 }
 
@@ -137,4 +140,35 @@ async function postWrongAnswers(request, env, ok, err) {
   await env.DB.batch(fixStatements);
 
   return ok({ success: true, saved: wrongAnswers.length });
+}
+
+// ─── DELETE /api/wrong-answers ────────────────────────────────────────────────
+// Called after a review session to clear questions that were successfully reviewed
+async function deleteWrongAnswers(request, env, ok, err) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return err('Invalid JSON body', 400);
+  }
+
+  const { userId, examType, questionHashes } = body;
+  if (!userId || !examType) return err('userId and examType are required', 400);
+
+  if (Array.isArray(questionHashes) && questionHashes.length > 0) {
+    // Delete specific questions by hash
+    const statements = questionHashes.map(hash =>
+      env.DB.prepare(
+        `DELETE FROM wrong_answers WHERE user_id = ? AND exam_type = ? AND question_hash = ?`
+      ).bind(userId, examType, hash)
+    );
+    await env.DB.batch(statements);
+    return ok({ success: true, deleted: questionHashes.length });
+  } else {
+    // Delete all wrong answers for this user + exam
+    await env.DB.prepare(
+      `DELETE FROM wrong_answers WHERE user_id = ? AND exam_type = ?`
+    ).bind(userId, examType).run();
+    return ok({ success: true, deleted: 'all' });
+  }
 }

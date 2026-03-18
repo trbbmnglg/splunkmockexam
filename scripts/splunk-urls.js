@@ -2,13 +2,20 @@
  * scripts/splunk-urls.js
  *
  * Curated Splunk documentation URLs for each certification topic.
- * These are stable Splunk Docs pages that map directly to blueprint topics.
  *
- * Each entry:
- * certType  — matches EXAM_BLUEPRINTS key in constants.js
- * topic     — matches blueprint topic name exactly
- * urls      — array of docs.splunk.com pages to scrape for this topic
+ * FIX 2026-03: Pinned all URLs from /Splunk/latest/ to /Splunk/9.4.2/
+ * Splunk migrated versions > 9.4.2 to help.splunk.com — the old docs portal
+ * returns HTTP 500 for the `latest` alias. 9.4.2 is the last version on
+ * docs.splunk.com and remains current for all cert exam objectives.
+ *
+ * SplunkCloud urls remain on /SplunkCloud/latest/ as that portal still works.
+ * CIM urls remain on /CIM/latest/ (separate product, unaffected).
  */
+
+const S = 'https://docs.splunk.com/Documentation/Splunk/9.4.2';
+const SC = 'https://docs.splunk.com/Documentation/SplunkCloud/latest';
+const FWD = 'https://docs.splunk.com/Documentation/Forwarder/9.4.2';
+const CIM = 'https://docs.splunk.com/Documentation/CIM/latest';
 
 export const SPLUNK_DOC_URLS = [
 
@@ -16,67 +23,67 @@ export const SPLUNK_DOC_URLS = [
   {
     certType: 'User', topic: 'Splunk Basics',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchTutorial/WelcometotheSearchTutorial',
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchTutorial/Aboutthesearchapp',
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchTutorial/Startsearching',
+      `${S}/SearchTutorial/WelcometotheSearchTutorial`,
+      `${S}/SearchTutorial/Aboutthesearchapp`,
+      `${S}/SearchTutorial/Startsearching`,
     ]
   },
   {
     certType: 'User', topic: 'Basic Searching',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Search/Aboutsearching',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Search/Searchtimerange',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Search/Usethesearchbar',
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchTutorial/Usefieldstosearch',
+      `${S}/Search/GetstartedwithSearch`,
+      `${S}/Search/Aboutsearchtimeranges`,
+      `${S}/Search/Usethesearchcommand`,
+      `${S}/SearchTutorial/Usefieldstosearch`,
     ]
   },
   {
     certType: 'User', topic: 'Using Fields in Searches',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Aboutfields',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Addaliasestofields',
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchTutorial/Usefieldstosearch',
+      `${S}/Knowledge/Aboutfields`,
+      `${S}/Knowledge/Addaliasestofields`,
+      `${S}/SearchTutorial/Usefieldstosearch`,
     ]
   },
   {
     certType: 'User', topic: 'Search Language Fundamentals',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Search/Aboutthesearchlanguage',
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Search',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Search/Usebooleansandcomparisonoperators',
+      `${S}/Search/Aboutthesearchlanguage`,
+      `${S}/SearchReference/Search`,
+      `${S}/Search/Usebooleansandcomparisonoperators`,
     ]
   },
   {
     certType: 'User', topic: 'Using Basic Transforming Commands',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Stats',
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Chart',
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Timechart',
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Top',
+      `${S}/SearchReference/Stats`,
+      `${S}/SearchReference/Chart`,
+      `${S}/SearchReference/Timechart`,
+      `${S}/SearchReference/Top`,
     ]
   },
   {
     certType: 'User', topic: 'Creating Reports and Dashboards',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Report/Aboutreports',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Viz/Aboutdashboards',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Viz/PanelreferenceforSimplifiedXML',
+      `${S}/Report/Aboutreports`,
+      `${S}/Viz/Aboutdashboards`,
+      `${S}/Viz/PanelreferenceforSimplifiedXML`,
     ]
   },
   {
     certType: 'User', topic: 'Creating and Using Lookups',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Aboutlookupsandfieldactions',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Definealookuponthefly',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Configuredblookupdefinitions',
+      `${S}/Knowledge/Aboutlookupsandfieldactions`,
+      `${S}/Knowledge/Definealookuponthefly`,
+      `${S}/Knowledge/Configuredblookupdefinitions`,
     ]
   },
   {
     certType: 'User', topic: 'Creating Scheduled Reports and Alerts',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Alert/Aboutalerts',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Report/Schedulereports',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Alert/Definerealtimealerts',
+      `${S}/Alert/Aboutalerts`,
+      `${S}/Report/Schedulereports`,
+      `${S}/Alert/Definerealtimealerts`,
     ]
   },
 
@@ -84,58 +91,58 @@ export const SPLUNK_DOC_URLS = [
   {
     certType: 'Power User', topic: 'Creating Field Aliases and Calculated Fields',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Addaliasestofields',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Defineandeditcalculatedfields',
+      `${S}/Knowledge/Addaliasestofields`,
+      `${S}/Knowledge/definecalcfields`,
     ]
   },
   {
     certType: 'Power User', topic: 'Creating Tags and Event Types',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Abouttagsandaliases',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Defineandeventtype',
+      `${S}/Knowledge/Abouttagsandaliases`,
+      `${S}/Knowledge/Defineandeventtype`,
     ]
   },
   {
     certType: 'Power User', topic: 'Creating and Using Macros',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Definesearchmacros',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Usesearchmacros',
+      `${S}/Knowledge/Definesearchmacros`,
+      `${S}/Knowledge/Usesearchmacros`,
     ]
   },
   {
     certType: 'Power User', topic: 'Creating and Using Workflow Actions',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Aboutworkflowactions',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Addaworkflowaction',
+      `${S}/Knowledge/CreateworkflowactionsinSplunkWeb`,
+      `${S}/Knowledge/WorkflowactionsinSplunkWeb`,
     ]
   },
   {
     certType: 'Power User', topic: 'Creating Data Models',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Aboutdatamodels',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Createandeditdatamodels',
+      `${S}/Knowledge/Aboutdatamodels`,
+      `${S}/Knowledge/Createandeditdatamodels`,
     ]
   },
   {
     certType: 'Power User', topic: 'Using the Common Information Model (CIM)',
     urls: [
-      'https://docs.splunk.com/Documentation/CIM/latest/User/Overview',
-      'https://docs.splunk.com/Documentation/CIM/latest/User/UsetheCIM',
+      `${CIM}/User/Overview`,
+      `${CIM}/User/UsetheCIM`,
     ]
   },
   {
     certType: 'Power User', topic: 'Correlating Events',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Transaction',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Search/Correlateevents',
+      `${S}/SearchReference/Transaction`,
+      `${S}/Search/Correlateevents`,
     ]
   },
   {
     certType: 'Power User', topic: 'Filtering and Formatting Results',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Eval',
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Where',
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Fieldformat',
+      `${S}/SearchReference/Eval`,
+      `${S}/SearchReference/Where`,
+      `${S}/SearchReference/Fieldformat`,
     ]
   },
 
@@ -143,61 +150,61 @@ export const SPLUNK_DOC_URLS = [
   {
     certType: 'Enterprise Admin', topic: 'Splunk Indexes',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Indexer/Aboutindexesandindexers',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Indexer/Setupmultipleindexes',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Indexer/Managingindexstorage',
+      `${S}/Indexer/Aboutindexesandindexers`,
+      `${S}/Indexer/Setupmultipleindexes`,
+      `${S}/Indexer/Managingindexstorage`,
     ]
   },
   {
     certType: 'Enterprise Admin', topic: 'Splunk Configuration Files',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Admin/Aboutconfigurationfiles',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Admin/Wheretofindtheconfigurationfiles',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Admin/Configurationfileprecedence',
+      `${S}/Admin/Aboutconfigurationfiles`,
+      `${S}/Admin/Wheretofindtheconfigurationfiles`,
+      `${S}/Admin/Configurationfileprecedence`,
     ]
   },
   {
     certType: 'Enterprise Admin', topic: 'Distributed Search',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/DistSearch/Whatisdistributedsearch',
-      'https://docs.splunk.com/Documentation/Splunk/latest/DistSearch/Setupdistributedsearch',
-      'https://docs.splunk.com/Documentation/Splunk/latest/DistSearch/Configuresearchheadpooling',
+      `${S}/DistSearch/Whatisdistributedsearch`,
+      `${S}/DistSearch/Setupdistributedsearch`,
+      `${S}/DistSearch/Configuresearchheadpooling`,
     ]
   },
   {
     certType: 'Enterprise Admin', topic: 'Configuring Forwarders',
     urls: [
-      'https://docs.splunk.com/Documentation/Forwarder/latest/Forwarder/Abouttheuniversalforwarder',
-      'https://docs.splunk.com/Documentation/Forwarder/latest/Forwarder/Installawindowsuniversalforwarder',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Forwarding/Configureforwardingandfilteredrouting',
+      `${FWD}/Forwarder/Abouttheuniversalforwarder`,
+      `${FWD}/Forwarder/Installawindowsuniversalforwarder`,
+      `${S}/Forwarding/Configureforwardingandfilteredrouting`,
     ]
   },
   {
     certType: 'Enterprise Admin', topic: 'Forwarder Management',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Updating/Aboutdeploymentserver',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Updating/Configureadeploymentserver',
+      `${S}/Updating/Aboutdeploymentserver`,
+      `${S}/Updating/Configureadeploymentserver`,
     ]
   },
   {
     certType: 'Enterprise Admin', topic: 'License Management',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Admin/Aboutlicenses',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Admin/Howlicensingworks',
+      `${S}/Admin/Aboutlicenses`,
+      `${S}/Admin/Howlicensingworks`,
     ]
   },
   {
     certType: 'Enterprise Admin', topic: 'Monitor Inputs',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Data/MonitorfilesanddirectorieswithSplunkWeb',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Data/Monitorfilesanddirectories',
+      `${S}/Data/MonitorfilesanddirectorieswithSplunkWeb`,
+      `${S}/Data/Monitorfilesanddirectories`,
     ]
   },
   {
     certType: 'Enterprise Admin', topic: 'Getting Data In',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Data/WhatSplunkcanmonitor',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Data/Usingforwardingagents',
+      `${S}/Data/WhatSplunkcanmonitor`,
+      `${S}/Data/Usingforwardingagents`,
     ]
   },
 
@@ -205,36 +212,36 @@ export const SPLUNK_DOC_URLS = [
   {
     certType: 'Cloud Admin', topic: 'Getting Data in Cloud',
     urls: [
-      'https://docs.splunk.com/Documentation/SplunkCloud/latest/Admin/ConfigureInputs',
-      'https://docs.splunk.com/Documentation/SplunkCloud/latest/Admin/NamedInputs',
+      `${SC}/Admin/ConfigureInputs`,
+      `${SC}/Admin/NamedInputs`,
     ]
   },
   {
     certType: 'Cloud Admin', topic: 'Index Management',
     urls: [
-      'https://docs.splunk.com/Documentation/SplunkCloud/latest/Admin/ManageIndexes',
-      'https://docs.splunk.com/Documentation/SplunkCloud/latest/Admin/CreateAndManageIndexesClassic',
+      `${SC}/Admin/ManageIndexes`,
+      `${SC}/Admin/CreateAndManageIndexesClassic`,
     ]
   },
   {
     certType: 'Cloud Admin', topic: 'User Authentication and Authorization',
     urls: [
-      'https://docs.splunk.com/Documentation/SplunkCloud/latest/Security/Setupauthenticationwithldap',
-      'https://docs.splunk.com/Documentation/SplunkCloud/latest/Security/Rolesandcapabilities',
+      `${SC}/Security/Setupauthenticationwithldap`,
+      `${SC}/Security/Rolesandcapabilities`,
     ]
   },
   {
     certType: 'Cloud Admin', topic: 'Forwarder Management',
     urls: [
-      'https://docs.splunk.com/Documentation/SplunkCloud/latest/Admin/ManageForwarders',
-      'https://docs.splunk.com/Documentation/SplunkCloud/latest/Admin/ConfigureHeavyForwarder',
+      `${SC}/Admin/ManageForwarders`,
+      `${SC}/Admin/ConfigureHeavyForwarder`,
     ]
   },
   {
     certType: 'Cloud Admin', topic: 'Installing and Managing Apps',
     urls: [
-      'https://docs.splunk.com/Documentation/SplunkCloud/latest/Admin/SelfServiceAppInstall',
-      'https://docs.splunk.com/Documentation/SplunkCloud/latest/Admin/PrivateApps',
+      `${SC}/Admin/SelfServiceAppInstall`,
+      `${SC}/Admin/PrivateApps`,
     ]
   },
 
@@ -242,30 +249,30 @@ export const SPLUNK_DOC_URLS = [
   {
     certType: 'Enterprise Architect', topic: 'Single-site Indexer Cluster',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Indexer/Aboutclusters',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Indexer/Basicclusterarchitecture',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Indexer/Configurethemasternode',
+      `${S}/Indexer/Aboutclusters`,
+      `${S}/Indexer/Basicclusterarchitecture`,
+      `${S}/Indexer/Configurethemasternode`,
     ]
   },
   {
     certType: 'Enterprise Architect', topic: 'Multisite Indexer Cluster',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Indexer/Multisiteclusters',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Indexer/Deploymultisitecluster',
+      `${S}/Indexer/Multisiteclusters`,
+      `${S}/Indexer/Deploymultisitecluster`,
     ]
   },
   {
     certType: 'Enterprise Architect', topic: 'Search Head Cluster',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/DistSearch/AboutSHC',
-      'https://docs.splunk.com/Documentation/Splunk/latest/DistSearch/DeploySHC',
+      `${S}/DistSearch/AboutSHC`,
+      `${S}/DistSearch/DeploySHC`,
     ]
   },
   {
     certType: 'Enterprise Architect', topic: 'Infrastructure Planning: Resource Planning',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Capacity/Introtocapacityplanning',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Capacity/HardwareforSplunkEnterprise',
+      `${S}/Capacity/Introtocapacityplanning`,
+      `${S}/Capacity/HardwareforSplunkEnterprise`,
     ]
   },
 
@@ -273,30 +280,30 @@ export const SPLUNK_DOC_URLS = [
   {
     certType: 'Advanced Power User', topic: 'Working with Multivalued Fields',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Multivalueeval',
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Makemv',
+      `${S}/SearchReference/Multivalueeval`,
+      `${S}/SearchReference/Makemv`,
     ]
   },
   {
     certType: 'Advanced Power User', topic: 'Using Subsearches',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Search/Useasubsearch',
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Appendcols',
+      `${S}/Search/Useasubsearch`,
+      `${S}/SearchReference/Appendcols`,
     ]
   },
   {
     certType: 'Advanced Power User', topic: 'Using Advanced Transactions',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Transaction',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Search/Abouttransactions',
+      `${S}/SearchReference/Transaction`,
+      `${S}/Search/Abouttransactions`,
     ]
   },
   {
     certType: 'Advanced Power User', topic: 'Manipulating and Filtering Data',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Eval',
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Rex',
-      'https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Regex',
+      `${S}/SearchReference/Eval`,
+      `${S}/SearchReference/Rex`,
+      `${S}/SearchReference/Regex`,
     ]
   },
 
@@ -304,21 +311,20 @@ export const SPLUNK_DOC_URLS = [
   {
     certType: 'O11y Metrics User', topic: 'Metrics Concepts',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Metrics/Overview',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Metrics/GetMetricsIn',
+      `${S}/Metrics/Overview`,
+      `${S}/Metrics/GetMetricsIn`,
     ]
   },
   {
     certType: 'O11y Metrics User', topic: 'Introduction to Alerting on Metrics with Detectors',
     urls: [
-      'https://docs.splunk.com/Documentation/SplunkCloud/latest/AlertManager/Aboutdetectors',
+      `${SC}/AlertManager/Aboutdetectors`,
     ]
   },
   {
     certType: 'O11y Metrics User', topic: 'Get Metrics In with OpenTelemetry',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Metrics/GetMetricsIn',
-      'https://docs.splunk.com/observability/en/gdi/opentelemetry/opentelemetry.html',
+      `${S}/Metrics/GetMetricsIn`,
     ]
   },
 
@@ -326,8 +332,8 @@ export const SPLUNK_DOC_URLS = [
   {
     certType: 'Cybersecurity Defense Engineer', topic: 'SPL and Efficient Searching',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Search/Optimizesearches',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Search/Writebettersearches',
+      `${S}/Search/Optimizesearches`,
+      `${S}/Search/Writebettersearches`,
     ]
   },
   {
@@ -349,25 +355,25 @@ export const SPLUNK_DOC_URLS = [
   {
     certType: 'Consultant', topic: 'Indexer Clustering',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Indexer/Aboutclusters',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Indexer/Managingindexers',
+      `${S}/Indexer/Aboutclusters`,
+      `${S}/Indexer/Managingindexers`,
     ]
   },
   {
     certType: 'Consultant', topic: 'Data Collection',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/Data/WhatSplunkcanmonitor',
-      'https://docs.splunk.com/Documentation/Splunk/latest/Data/Usingforwardingagents',
+      `${S}/Data/WhatSplunkcanmonitor`,
+      `${S}/Data/Usingforwardingagents`,
     ]
   },
   {
     certType: 'Consultant', topic: 'Search Head Clustering',
     urls: [
-      'https://docs.splunk.com/Documentation/Splunk/latest/DistSearch/AboutSHC',
-      'https://docs.splunk.com/Documentation/Splunk/latest/DistSearch/SHCarchitecture',
+      `${S}/DistSearch/AboutSHC`,
+      `${S}/DistSearch/SHCarchitecture`,
     ]
   },
 ];
 
-// Exporting as splunkDocs as well to ensure compatibility with our earlier ingest.js file
+// Alias for compatibility with ingest.js
 export const splunkDocs = SPLUNK_DOC_URLS;

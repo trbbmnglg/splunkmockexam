@@ -9,3 +9,14 @@ main = "worker/index.js"
 binding = "DB"
 database_name = "splunk-exam-profiles"
 database_id = "16c1ee28-9103-496b-b2dd-2dc5e2215b16"
+
+# NOTE: Vectorize + AI bindings added after running setup-vectorize workflow
+# [[vectorize]]
+# binding = "VECTORIZE"
+# index_name = "splunk-docs-index"
+# [ai]
+# binding = "AI"
+
+# Environment variables set in Cloudflare dashboard → Variables and secrets:
+#   VITE_GROQ_TOKEN  — baked into JS bundle at build time (Type: Variable, not Secret)
+#   GROQ_TOKEN       — available to Worker runtime for future server-side use

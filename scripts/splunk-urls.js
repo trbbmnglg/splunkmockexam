@@ -5,9 +5,9 @@
  * These are stable Splunk Docs pages that map directly to blueprint topics.
  *
  * Each entry:
- *   certType  — matches EXAM_BLUEPRINTS key in constants.js
- *   topic     — matches blueprint topic name exactly
- *   urls      — array of docs.splunk.com pages to scrape for this topic
+ * certType  — matches EXAM_BLUEPRINTS key in constants.js
+ * topic     — matches blueprint topic name exactly
+ * urls      — array of docs.splunk.com pages to scrape for this topic
  */
 
 export const SPLUNK_DOC_URLS = [
@@ -368,3 +368,6 @@ export const SPLUNK_DOC_URLS = [
     ]
   },
 ];
+
+// Exporting as splunkDocs as well to ensure compatibility with our earlier ingest.js file
+export const splunkDocs = SPLUNK_DOC_URLS;

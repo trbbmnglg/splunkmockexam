@@ -15,10 +15,12 @@ const CONSENT_SECTIONS = [
   },
   {
     title: '2. Data Collected & Processed',
-    content: `This tool collects and processes the following data locally in your browser:
+    content: `This tool collects and processes the following data:
 • API Keys: Stored exclusively in your browser's localStorage. They are never transmitted to our servers.
 • Exam Configurations: Topic selections, question counts, and timer settings are held in React state (memory only) and discarded when you close the tab.
 • Consent Flag: A single boolean flag ("splunkExamConsent") is stored in localStorage to remember your consent decision.
+• Adaptive Learning Profile: After each exam, your topic-level performance data (attempts, errors, score trends) is stored in both your browser's localStorage and in a Cloudflare D1 database. This data is linked to an anonymous random ID generated in your browser — it contains no personally identifiable information.
+• Wrong Answer Bank: Missed questions are persisted to Cloudflare D1 for spaced repetition review. This data is linked to your anonymous ID only.
 • Feedback Submissions: If you voluntarily submit an official exam result, the pasted evidence text, your chosen exam, and feedback are sent to a Cloudflare Worker webhook for processing. You should redact any personal information before pasting.`
   },
   {
@@ -64,11 +66,7 @@ function WrongAnswerCard({ questionIndex, question, yourAnswer, correctAnswer, a
   const [errorMsg, setErrorMsg] = useState('');
   const [open, setOpen] = useState(false);
 
-  const handleExpand = async () => {
-    if (open) { setOpen(false); return; }
-    setOpen(true);
-    if (state !== 'idle') return; // already fetched or loading
-
+  const doFetch = async () => {
     setState('loading');
     try {
       const result = await fetchExplanation(
@@ -81,6 +79,17 @@ function WrongAnswerCard({ questionIndex, question, yourAnswer, correctAnswer, a
       setErrorMsg(err.message);
       setState('error');
     }
+  };
+
+  const handleExpand = () => {
+    if (open) { setOpen(false); return; }
+    setOpen(true);
+    if (state === 'idle') doFetch();
+  };
+
+  const handleRetry = () => {
+    setErrorMsg('');
+    doFetch(); // state is still 'error' when called, doFetch immediately sets 'loading'
   };
 
   return (
@@ -146,7 +155,7 @@ function WrongAnswerCard({ questionIndex, question, yourAnswer, correctAnswer, a
             <AlertTriangle className="w-4 h-4 flex-shrink-0" />
             <span>{errorMsg}</span>
             <button
-              onClick={() => { setState('idle'); handleExpand(); }}
+              onClick={handleRetry}
               className="ml-auto text-xs underline hover:no-underline"
             >
               Retry
@@ -434,13 +443,25 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     }
   }, [examType, examConfig.numQuestions, examConfig.selectedTopics, examConfig.aiProvider, userEditedPrompt, buildAgenticPrompt]);
 
+  // Ref to hold latest exam state for timer callback — avoids stale closure
+  // without adding to timer effect deps (which would reset the timer)
+  const examStateRef = useRef({ examType, questions, userAnswers });
+  useEffect(() => { examStateRef.current = { examType, questions, userAnswers }; }, [examType, questions, userAnswers]);
+
   useEffect(() => {
     if (gameState === 'exam' && examConfig.useTimer) {
       timerRef.current = setInterval(() => {
         setTimeRemaining((prev) => {
           if (prev <= 1) {
             clearInterval(timerRef.current);
-            setGameState('results'); 
+            // Save profile on timer expiry (same as finishExam, non-blocking)
+            const { examType: et, questions: qs, userAnswers: ua } = examStateRef.current;
+            if (et && qs.length > 0) {
+              updateProfile(et, qs, ua).catch(err =>
+                console.warn('[App] Profile update on timeout failed:', err.message)
+              );
+            }
+            setGameState('results');
             return 0;
           }
           return prev - 1;

@@ -1775,41 +1775,149 @@ ${p.text.slice(0, 600)}
   };
 
   const renderFooter = () => {
-    if (gameState !== 'menu' && gameState !== 'results') return null;
-    return (
-      <footer className="max-w-6xl mx-auto px-4 py-12 mt-12 border-t border-slate-200 animate-fade-in">
-        <div className="text-center mb-8">
-          <h3 className="text-xl font-bold text-slate-800">How to use this tool</h3>
-          <p className="text-slate-500 mt-2">Follow these steps to generate and take your practice exam.</p>
+  if (gameState !== 'menu' && gameState !== 'results') return null;
+  return (
+    <footer className="max-w-6xl mx-auto px-4 py-12 mt-12 border-t border-slate-200 animate-fade-in space-y-16">
+
+      {/* ── Features & Benefits ── */}
+      <div>
+        <div className="text-center mb-10">
+          <h3 className="text-2xl font-extrabold text-slate-800">Features &amp; Benefits</h3>
+          <p className="text-slate-500 mt-2">Everything built into this tool to maximize your exam readiness.</p>
         </div>
-        <div className="grid md:grid-cols-4 gap-6 text-sm text-slate-600">
-          <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5 text-sm text-slate-600">
+
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex gap-4">
+            <div className="w-10 h-10 bg-pink-100 flex items-center justify-center rounded-lg flex-shrink-0">
+              <Zap className="w-5 h-5 text-pink-600" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 mb-1">AI-Powered Question Generation</h4>
+              <p>Questions are generated fresh every session using large language models (Groq/Llama, Gemini, Perplexity, Qwen) — no static question banks, no repetition.</p>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex gap-4">
+            <div className="w-10 h-10 bg-indigo-100 flex items-center justify-center rounded-lg flex-shrink-0">
+              <BookOpen className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 mb-1">RAG-Grounded on Splunk Docs</h4>
+              <p>A Retrieval-Augmented Generation (RAG) layer retrieves real Splunk documentation passages from a Cloudflare Vectorize index to ground every question in official content.</p>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex gap-4">
+            <div className="w-10 h-10 bg-purple-100 flex items-center justify-center rounded-lg flex-shrink-0">
+              <ShieldCheck className="w-5 h-5 text-purple-600" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 mb-1">Self-Validation Pipeline</h4>
+              <p>A built-in validation agent reviews every generated question for answer-option mismatches, duplicate concepts, formatting issues, and difficulty calibration — then auto-regenerates failures.</p>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex gap-4">
+            <div className="w-10 h-10 bg-emerald-100 flex items-center justify-center rounded-lg flex-shrink-0">
+              <BarChart2 className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 mb-1">Adaptive Learning Profile</h4>
+              <p>Your performance per topic is tracked across sessions in Cloudflare D1. Subsequent exams automatically weight your weak areas more heavily and ease up on strong topics.</p>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex gap-4">
+            <div className="w-10 h-10 bg-orange-100 flex items-center justify-center rounded-lg flex-shrink-0">
+              <RefreshCw className="w-5 h-5 text-orange-600" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 mb-1">Spaced Repetition Review Bank</h4>
+              <p>Wrong answers are stored and scheduled using a spaced repetition algorithm (1→3→7→14→30→60 day intervals). Launch a Review Session from the results page to drill missed questions.</p>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex gap-4">
+            <div className="w-10 h-10 bg-yellow-100 flex items-center justify-center rounded-lg flex-shrink-0">
+              <Star className="w-5 h-5 text-yellow-600" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 mb-1">AI Answer Explanations</h4>
+              <p>After each exam, click <span className="font-semibold text-indigo-600">Why?</span> on any wrong answer to get a lazy-loaded AI explanation covering the concept, the misconception, and a key takeaway.</p>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex gap-4">
+            <div className="w-10 h-10 bg-blue-100 flex items-center justify-center rounded-lg flex-shrink-0">
+              <FileText className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 mb-1">Official Exam Blueprint Integration</h4>
+              <p>Each certification card shows the official Splunk exam blueprint — questions, time limit, passing score, level, and topic weight percentages sourced directly from Splunk's PDFs.</p>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex gap-4">
+            <div className="w-10 h-10 bg-cyan-100 flex items-center justify-center rounded-lg flex-shrink-0">
+              <Users className="w-5 h-5 text-cyan-600" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 mb-1">Community Difficulty Heatmap</h4>
+              <p>Aggregated (anonymized) error rates from all users are shown per topic on each certification card, revealing which topics the community finds hardest before you even start.</p>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex gap-4">
+            <div className="w-10 h-10 bg-rose-100 flex items-center justify-center rounded-lg flex-shrink-0">
+              <Globe className="w-5 h-5 text-rose-600" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 mb-1">Live Web Search Mode</h4>
+              <p>Switch to the Perplexity engine to generate questions grounded in live Splunk documentation searches — ideal for keeping up with the latest product changes.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* ── How to Use ── */}
+      <div>
+        <div className="text-center mb-10">
+          <h3 className="text-2xl font-extrabold text-slate-800">How to Use This Tool</h3>
+          <p className="text-slate-500 mt-2">Follow these steps to get the most out of each study session.</p>
+        </div>
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 text-sm text-slate-600">
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
             <div className="w-8 h-8 bg-pink-100 text-pink-600 font-bold flex items-center justify-center rounded-full mb-3">1</div>
-            <h4 className="font-bold text-slate-800 mb-1">Select Certification</h4>
-            <p>Choose the Splunk certification track you are currently studying for.</p>
+            <h4 className="font-bold text-slate-800 mb-1">Select a Certification</h4>
+            <p>Pick the Splunk cert track you're studying for. Each card shows a community difficulty heatmap and links to the official exam blueprint.</p>
           </div>
-          <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
             <div className="w-8 h-8 bg-pink-100 text-pink-600 font-bold flex items-center justify-center rounded-full mb-3">2</div>
-            <h4 className="font-bold text-slate-800 mb-1">Configure Generation</h4>
-            <p>Select specific topics to focus on, question counts, and API generator settings.</p>
+            <h4 className="font-bold text-slate-800 mb-1">Configure Your Exam</h4>
+            <p>Choose the number of questions, focus on specific blueprint topics, toggle the timer, and select your AI generator engine. Optionally customize the prompt directly.</p>
           </div>
-          <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
             <div className="w-8 h-8 bg-pink-100 text-pink-600 font-bold flex items-center justify-center rounded-full mb-3">3</div>
             <h4 className="font-bold text-slate-800 mb-1">Take the Exam</h4>
-            <p>Complete the dynamically generated mock exam in a timed or untimed environment.</p>
+            <p>Answer all questions before submitting. Use the navigator to jump between questions, flag items for review, and track your progress with the answer bar.</p>
           </div>
-          <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
             <div className="w-8 h-8 bg-pink-100 text-pink-600 font-bold flex items-center justify-center rounded-full mb-3">4</div>
-            <h4 className="font-bold text-slate-800 mb-1">Review Weaknesses</h4>
-            <p>View your final score and get direct links to official Splunk docs for missed topics.</p>
+            <h4 className="font-bold text-slate-800 mb-1">Review &amp; Improve</h4>
+            <p>See your score, review wrong answers with AI explanations, launch a spaced-repetition review session, and track your adaptive learning profile across sessions.</p>
           </div>
         </div>
-        <div className="mt-12 text-center text-xs text-slate-400">
-          <p>This is a community-driven project and is not officially affiliated with or endorsed by Splunk Inc.</p>
-        </div>
-      </footer>
-    );
-  }
+      </div>
+
+      {/* ── Attribution ── */}
+      <div className="text-center text-xs text-slate-400 pb-4">
+        <p>This is a personal project and is not officially affiliated with or endorsed by Splunk Inc.</p>
+      </div>
+
+    </footer>
+  );
+}
 
   return (
     <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-pink-200 selection:text-pink-900 flex flex-col">

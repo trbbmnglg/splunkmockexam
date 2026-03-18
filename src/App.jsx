@@ -4,7 +4,7 @@ import { Clock, CheckCircle, XCircle, AlertTriangle, ChevronRight, ChevronLeft, 
 import { CURRENT_YEAR, YEAR_RANGE, TOPICS, CERT_CARDS, TOPIC_LINKS, API_KEY_URLS, PRODUCT_CONTEXT_MAP, EXAM_BLUEPRINTS } from './utils/constants';
 import { DEFAULT_GROQ_KEY, CF_WEBHOOK_URL, CF_WEBHOOK_TOKEN, validateSubmissionWithAI, generateDynamicQuestions } from './utils/api';
 import { runValidationPipeline } from './utils/agentValidator';
-import { updateProfile, buildAdaptiveContext, getProfileSummary, clearProfile } from './utils/agentAdaptive';
+import { updateProfile, buildAdaptiveContext, getProfileSummary, clearProfile, getUserId, loadProfile } from './utils/agentAdaptive';
 import { fetchExplanation } from './utils/agentExplainer';
 
 // ─── Consent section definitions ───────────────────────────────────────────
@@ -459,11 +459,13 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     }
   }, [showFeedbackModal]);
 
-  const handleSelectExamType = useCallback((selectedType) => {
+  const handleSelectExamType = useCallback(async (selectedType) => {
     setExamType(selectedType);
     setUserEditedPrompt(false);
     setExamConfig(prev => ({ ...prev, numQuestions: selectedType === 'Power User' ? 25 : 20, selectedTopics: [], useTimer: true }));
     setGameState('config');
+    // Sync D1 profile into localStorage so adaptive context is fresh
+    try { await loadProfile(selectedType); } catch { /* non-fatal */ }
   }, []);
 
   const updateApiKey = useCallback((provider, value) => {
@@ -558,10 +560,10 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
   const prevQuestion = useCallback(() => { setCurrentQuestionIndex(prev => prev > 0 ? prev - 1 : prev); }, []);
 
   // ── Layer 3: Update adaptive profile on exam finish ──────────────────────
-  const finishExam = useCallback(() => {
+  const finishExam = useCallback(async () => {
     clearInterval(timerRef.current);
     if (examType && questions.length > 0) {
-      updateProfile(examType, questions, userAnswers);
+      await updateProfile(examType, questions, userAnswers);
     }
     setGameState('results');
   }, [examType, questions, userAnswers]);
@@ -1337,6 +1339,14 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
                       </button>
+                    </div>
+                    {/* User ID for cross-device sync */}
+                    <div className="mb-3 bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex items-center gap-2">
+                      <Shield className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-xs text-slate-500 leading-none mb-0.5">Your anonymous ID — use on any device to continue your profile</p>
+                        <p className="text-xs font-mono text-slate-700 truncate">{getUserId()}</p>
+                      </div>
                     </div>
                     <div className="space-y-2">
                       {topTopics.map((t, i) => (

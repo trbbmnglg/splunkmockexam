@@ -113,6 +113,7 @@ Each element must have exactly these keys:
 - "options": array of exactly 4 strings — each option is a complete phrase or sentence, grammatically parallel, similar length (within ~10 words of each other)
 - "answer": string — must be an exact character-for-character match of one element in "options"
 - "topic": string — the specific blueprint topic domain this question covers
+- "docSource": string — URL of the reference doc passage this question is based on (from REFERENCE DOCUMENTATION above). Use empty string "" if no passage was provided.
 
 Example of correctly formatted output:
 [
@@ -125,7 +126,8 @@ Example of correctly formatted output:
       "The deployment server, which manages app distribution to forwarders"
     ],
     "answer": "The indexer, which stores compressed raw data and index files",
-    "topic": "Splunk Basics"
+    "topic": "Splunk Basics",
+    "docSource": "https://docs.splunk.com/Documentation/Splunk/latest/Indexer/Aboutindexesandindexers"
   }
 ]`;
 

@@ -15,6 +15,7 @@ const MODEL_NAME = '@cf/baai/bge-small-en-v1.5';
 const BATCH_SIZE = 100;
 const RETRY_LIMIT = 3;
 const DELAY_BETWEEN_REQUESTS_MS = 1500; // Increased to avoid rate limiting
+const FORCE_REINGEST = process.env.FORCE_REINGEST === 'true'; // set to re-process everything
 
 // Rotate User-Agent strings to avoid WAF blocking
 const USER_AGENTS = [
@@ -127,6 +128,45 @@ async function getEmbeddings(texts) {
   return result.result.data; // Array of arrays (embeddings)
 }
 
+// ── Deterministic vector ID based on URL + chunk index ───────────────────────
+// Using a stable ID means re-runs can check if chunk-0 already exists and skip
+// the entire URL. No external state file needed.
+function urlToSlug(url) {
+  return url
+    .replace(/^https?:\/\/[^/]+\/Documentation\//, '')
+    .replace(/[^a-zA-Z0-9]/g, '-')
+    .toLowerCase()
+    .slice(0, 80); // keep IDs short
+}
+
+function chunkId(url, chunkIndex) {
+  return `${urlToSlug(url)}-${chunkIndex}`;
+}
+
+// Check Vectorize for chunk-0 of this URL — if it exists the URL was ingested
+async function isUrlIngested(url) {
+  if (FORCE_REINGEST) return false;
+  const id = chunkId(url, 0);
+  try {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/vectorize/v2/indexes/${INDEX_NAME}/get-by-ids`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${CF_API_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ ids: [id] })
+      }
+    );
+    if (!response.ok) return false;
+    const result = await response.json();
+    return result.success && result.result?.length > 0;
+  } catch {
+    return false; // on any error, assume not ingested and proceed
+  }
+}
+
 async function uploadToVectorize(vectors) {
   // Cloudflare Vectorize expects NDJSON format for bulk inserts
   const ndjson = vectors.map(v => JSON.stringify(v)).join('\n');
@@ -183,6 +223,14 @@ async function main() {
     console.log(`\n[${certType}] ${topic}`);
     
     for (const url of doc.urls) {
+      // ── Resume logic: skip URLs already in Vectorize ──────────────────────
+      const alreadyDone = await isUrlIngested(url);
+      if (alreadyDone) {
+        console.log(`  SKIP (already ingested): ${url}`);
+        processedCount++;
+        continue;
+      }
+
       console.log(`  Fetching: ${url}`);
       try {
         const html = await fetchWithRetry(url);
@@ -190,16 +238,14 @@ async function main() {
         const chunks = chunkText(text);
         
         console.log(`  -> Extracted ${chunks.length} chunks`);
-        
-        // FIX: use certType for the namespace, not cert.cert (which was undefined)
-        const safeNamespace = certType.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
 
         for (let i = 0; i < chunks.length; i++) {
           allVectors.push({
-            id: `${safeNamespace}-${Date.now()}-${processedCount}-${i}`,
+            // Deterministic ID — stable across re-runs for the same URL+chunk
+            id: chunkId(url, i),
             text: chunks[i],
             metadata: {
-              cert:  certType,  // stored as `cert` in metadata for retrieve.js filter
+              cert:  certType,
               topic: topic,
               url:   url
             }
@@ -245,14 +291,16 @@ async function main() {
       const texts = batch.map(b => b.text);
       const embeddings = await getEmbeddings(texts);
       
-      // 2. Format for Vectorize
+      // 2. Format for Vectorize — id already set deterministically
       const vectorizePayload = batch.map((item, idx) => ({
         id: item.id,
         values: embeddings[idx],
         namespace: item.metadata.cert.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase(),
         metadata: {
-          ...item.metadata,
-          text: item.text
+          cert:  item.metadata.cert,
+          topic: item.metadata.topic,
+          url:   item.metadata.url,
+          text:  item.text
         }
       }));
 
@@ -272,6 +320,8 @@ async function main() {
   console.log(`\n=== Ingestion Complete ===`);
   console.log(`Successfully embedded and uploaded ${totalUploaded}/${allVectors.length} chunks.`);
   console.log(`URLs skipped due to fetch errors: ${skippedCount}`);
+  console.log(`Re-run anytime — already-ingested URLs will be auto-skipped.`);
+  console.log(`To force full re-ingest: set FORCE_REINGEST=true in the workflow inputs.`);
 }
 
 main().catch(console.error);

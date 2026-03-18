@@ -9,16 +9,3 @@ main = "worker/index.js"
 binding = "DB"
 database_name = "splunk-exam-profiles"
 database_id = "16c1ee28-9103-496b-b2dd-2dc5e2215b16"
-
-# Layer 2 — Vectorize for semantic doc retrieval
-[[vectorize]]
-binding = "VECTORIZE"
-index_name = "splunk-docs-index"
-
-# Layer 2 — Workers AI for embedding queries at retrieval time
-[ai]
-binding = "AI"
-
-# Environment variables set in Cloudflare dashboard → Variables and secrets:
-#   VITE_GROQ_TOKEN  — baked into JS bundle at build time (Type: Variable, not Secret)
-#   GROQ_TOKEN       — available to Worker runtime for future server-side use

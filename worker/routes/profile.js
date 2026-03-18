@@ -18,6 +18,9 @@ export async function handleProfile(request, env, ok, err) {
   if (request.method === 'POST') {
     return postProfile(request, env, ok, err);
   }
+  if (request.method === 'DELETE') {
+    return deleteProfile(request, env, ok, err);
+  }
   return err('Method not allowed', 405);
 }
 
@@ -126,4 +129,31 @@ async function postProfile(request, env, ok, err) {
   await env.DB.batch([...statements, ...communityStatements]);
 
   return ok({ success: true, sessions: newSessionCount });
+}
+
+// ─── DELETE /api/profile ─────────────────────────────────────────────────────
+async function deleteProfile(request, env, ok, err) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return err('Invalid JSON body', 400);
+  }
+
+  const { userId, examType } = body;
+  if (!userId) return err('userId is required', 400);
+
+  if (examType) {
+    // Delete only this exam type's profile
+    await env.DB.prepare(
+      `DELETE FROM topic_profiles WHERE user_id = ? AND exam_type = ?`
+    ).bind(userId, examType).run();
+  } else {
+    // Delete all profiles for this user
+    await env.DB.prepare(
+      `DELETE FROM topic_profiles WHERE user_id = ?`
+    ).bind(userId).run();
+  }
+
+  return ok({ success: true, deleted: true });
 }

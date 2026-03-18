@@ -7,10 +7,19 @@ const getEnvVar = (viteKey, craKey, fallback = '') => {
 };
 
 /**
- * DEFAULT_GROQ_KEY now looks for VITE_GROQ_TOKEN (Cloudflare/Vite standard)
- * We have removed the deleted hardcoded key.
+ * DEFAULT_GROQ_KEY — the shared/fallback Groq API key used when the user
+ * hasn't entered their own key in Advanced Settings.
+ *
+ * Priority order:
+ *   1. VITE_GROQ_TOKEN environment variable (set in Cloudflare Pages / .env)
+ *   2. REACT_APP_GROQ_TOKEN environment variable (CRA builds)
+ *   3. Hardcoded fallback string below — paste your shared key here for local dev
+ *
+ * To set it: create a `.env` file at the project root with:
+ *   VITE_GROQ_TOKEN=gsk_xxxxxxxxxxxxxxxxxxxxxxxx
  */
-export const DEFAULT_GROQ_KEY = getEnvVar('VITE_GROQ_TOKEN', 'REACT_APP_GROQ_TOKEN', '');
+export const DEFAULT_GROQ_KEY = getEnvVar('VITE_GROQ_TOKEN', 'GROQ_TOKEN', '');
+
 export const CF_WEBHOOK_URL = getEnvVar('VITE_CF_WEBHOOK_URL', 'REACT_APP_CF_WEBHOOK_URL', '');
 export const CF_WEBHOOK_TOKEN = getEnvVar('VITE_CF_WEBHOOK_TOKEN', 'REACT_APP_CF_WEBHOOK_TOKEN', '');
 
@@ -34,14 +43,14 @@ export const fetchWithRetry = async (url, options, maxRetries = 5, timeoutMs = 3
 };
 
 /**
- * Validates a submission using AI. 
+ * Validates a submission using AI.
  * Automatically falls back to DEFAULT_GROQ_KEY if no apiKey is provided.
  */
 export const validateSubmissionWithAI = async (data, apiKey) => {
   const effectiveKey = apiKey || DEFAULT_GROQ_KEY;
   
   if (!effectiveKey) {
-    throw new Error("No Groq API key found. Please provide one in settings or check environment variables.");
+    throw new Error("No Groq API key found. Please provide one in settings or set VITE_GROQ_TOKEN in your .env file.");
   }
 
   const prompt = `You are a strict validation AI for a Splunk Certification community.
@@ -102,8 +111,8 @@ export const getFallbackQuestions = (examType, targetCount) => {
 };
 
 /**
- * Generates exam questions. 
- * If using 'llama', it will fall back to DEFAULT_GROQ_KEY if the provided key is empty.
+ * Generates exam questions.
+ * For llama provider: always falls back to DEFAULT_GROQ_KEY if the provided key is empty.
  */
 export const generateDynamicQuestions = async (examType, config, apiKey) => {
   const provider = config.aiProvider;
@@ -112,7 +121,10 @@ export const generateDynamicQuestions = async (examType, config, apiKey) => {
   const effectiveKey = provider === 'llama' ? (apiKey || DEFAULT_GROQ_KEY) : apiKey;
 
   if (!effectiveKey) {
-    throw new Error(`API Key for ${provider.toUpperCase()} is missing. Please provide one in Advanced Settings.`);
+    return {
+      questions: getFallbackQuestions(examType, config.numQuestions),
+      error: `API Key for ${provider.toUpperCase()} is missing. Please provide one in Advanced Settings.\n\nLoading fallback practice questions instead.`
+    };
   }
 
   const promptText = `${config.customPrompt}

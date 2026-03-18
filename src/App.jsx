@@ -211,27 +211,81 @@ export default function App() {
 
   const buildAgenticPrompt = useCallback((type, num, topics, provider) => {
     if (!type) return "";
-    const topicText = topics.length > 0 ? `Focus strictly on these exact domains: ${topics.join(', ')}.` : `Ensure broad and balanced coverage across all domains of the ${type} certification blueprint.`;
-    const providerContext = provider === 'perplexity' ? `Utilize your live web search capabilities to cross-reference the absolute latest ${YEAR_RANGE} Splunk documentation.` : `Rely on your deep foundational knowledge of the relevant Splunk product suite.`;
+
+    const bp = EXAM_BLUEPRINTS[type];
     const productContext = PRODUCT_CONTEXT_MAP[type] || 'Splunk Enterprise and Splunk Cloud Platform';
+    const providerContext = provider === 'perplexity'
+      ? `Use your live web search to verify answers against the latest ${YEAR_RANGE} Splunk documentation.`
+      : `Draw from your deep knowledge of the Splunk product suite and official documentation.`;
 
-    return `You are an expert Splunk Certification Architect evaluating a candidate for the "${type}" certification.
+    // Level-calibrated difficulty guidance
+    const levelGuidance = {
+      'Foundational-Level': 'Questions should test basic recognition and recall. Avoid deep configuration syntax. Focus on concepts, definitions, and basic UI interactions a new user would encounter.',
+      'Entry-Level': 'Questions should test practical understanding — not just definitions. Include some "what would you do" scenarios but keep them straightforward. Avoid multi-step troubleshooting.',
+      'Intermediate-Level': 'Questions should require applied knowledge. Mix conceptual and scenario-based questions. Include some troubleshooting and configuration scenarios with realistic but clear context.',
+      'Professional-Level': 'Questions should test real-world administration tasks. Include configuration-file-level details, troubleshooting multi-step scenarios, and architectural decisions.',
+      'Expert-Level': 'Questions should test expert architectural decisions, cluster-level troubleshooting, sizing trade-offs, and edge-case scenarios an experienced practitioner would face.',
+    };
+    const difficulty = bp ? (levelGuidance[bp.level] || levelGuidance['Intermediate-Level']) : levelGuidance['Entry-Level'];
 
-MISSION:
-Generate a highly realistic, challenging mock exam consisting of exactly ${num} questions.
-${topicText}
+    // Blueprint topic distribution — inject real percentages if available
+    let topicDistribution = '';
+    if (topics.length > 0) {
+      // User has manually selected specific topics — distribute evenly across them
+      const perTopic = Math.ceil(num / topics.length);
+      const distribution = topics.map((t, i) => {
+        const count = i < num % topics.length || num % topics.length === 0 ? perTopic : perTopic;
+        return `  - "${t}"`;
+      }).join('\n');
+      topicDistribution = `The candidate has chosen to focus on these specific topics. Distribute the ${num} questions as evenly as possible across ALL of them — do NOT cluster multiple questions around the same concept within a topic:
+${distribution}
 
-PRODUCT SCOPE:
-Questions must be grounded specifically in: ${productContext}.
+CRITICAL DIVERSITY RULE: Each question must test a DIFFERENT specific concept, command, setting, or scenario. If a topic has multiple questions, they must cover different sub-concepts. Never generate two questions that differ only in a number, threshold, or port value.`;
+    } else if (bp) {
+      // No selection — use official blueprint percentages to distribute
+      const topicCounts = bp.topics.map(t => ({
+        name: t.name,
+        count: Math.max(1, Math.round((t.pct / 100) * num))
+      }));
+      // Adjust rounding errors to hit exactly `num`
+      let total = topicCounts.reduce((s, t) => s + t.count, 0);
+      let i = 0;
+      while (total < num) { topicCounts[i % topicCounts.length].count++; total++; i++; }
+      while (total > num) { const idx = topicCounts.findIndex(t => t.count > 1); if (idx >= 0) { topicCounts[idx].count--; total--; } else break; }
 
-CONTEXT & KNOWLEDGE:
+      const distribution = topicCounts.map(t => `  - "${t.name}": ${t.count} question${t.count !== 1 ? 's' : ''}`).join('\n');
+      topicDistribution = `Distribute the ${num} questions according to the OFFICIAL exam blueprint percentages:
+${distribution}
+
+This distribution is mandatory — do not deviate from these counts.`;
+    } else {
+      topicDistribution = `Distribute questions broadly and evenly across all major topics of the ${type} certification.`;
+    }
+
+    return `You are a Splunk certification exam author creating a mock exam for the "${type}" certification (${bp ? bp.level : 'intermediate'}).
+
+EXAM CONTEXT:
+- Certification: ${type}
+- Level: ${bp ? bp.level : 'Intermediate'}
+- Product Scope: ${productContext}
+- Total Questions to Generate: ${num}
 ${providerContext}
 
-STRICT GENERATION RULES:
-1. Scenario-Driven: Avoid basic vocabulary/trivia. Present realistic troubleshooting logs or architecture scaling scenarios.
-2. Plausible Distractors: Every incorrect option must represent a highly common real-world misconception.
-3. No Lazy Options: NEVER use "All of the above" or "None of the above".
-4. Absolute Accuracy: The correct answer must be unambiguous and technically indisputable according to official Splunk documentation.`;
+DIFFICULTY CALIBRATION — strictly follow this for every question:
+${difficulty}
+
+TOPIC DISTRIBUTION — follow these counts exactly:
+${topicDistribution}
+
+QUESTION QUALITY RULES — every question must follow ALL of these:
+1. Each question tests ONE specific, distinct concept. No two questions may test the same concept, even if the topic is the same.
+2. Options must be grammatically parallel and similar in length (within ~10 words of each other). Never mix full sentences with single words as options.
+3. All 4 options must be plausible to someone with partial knowledge — distractors should reflect real common misconceptions, not obvious wrong answers.
+4. NEVER use "All of the above", "None of the above", or "Both A and B".
+5. The correct answer must be verifiable against official Splunk documentation.
+6. Do NOT repeat the exam type, certification name, or meta-information in the question text.
+7. Questions must match the difficulty level above — do not make Entry-Level questions read like Expert-Level questions.
+8. For ${num <= 5 ? 'small' : 'larger'} question sets, ensure maximum topic variety — do not repeat similar scenarios.`;
   }, []);
 
   useEffect(() => {

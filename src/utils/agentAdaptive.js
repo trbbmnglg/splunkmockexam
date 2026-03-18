@@ -6,14 +6,19 @@
  * tool works exactly as before. On new devices, D1 is the source of truth.
  *
  * API endpoints used:
- *   GET  /api/profile?userId=&examType=  → read profile
- *   POST /api/profile                    → write profile after exam
- *   POST /api/wrong-answers              → persist missed questions
- *   GET  /api/community?examType=        → community heatmap
+ * GET  /api/profile?userId=&examType=  → read profile
+ * POST /api/profile                    → write profile after exam
+ * POST /api/wrong-answers              → persist missed questions
+ * GET  /api/community?examType=        → community heatmap
  */
 
 const LOCAL_KEY   = 'splunkAdaptiveProfile';
 const USER_ID_KEY = 'splunkUserId';
+
+// Dynamically route to local Vite proxy OR production Cloudflare Worker
+const BASE_URL = import.meta.env.MODE === 'development' 
+  ? '/api' 
+  : 'https://splunkmockexam.gtaad-innovations.com/api';
 
 // ─── User ID — anonymous persistent UUID ─────────────────────────────────────
 export const getUserId = () => {
@@ -47,7 +52,7 @@ const saveLocalProfile = (profile) => {
 
 export const clearProfile = (examType) => {
   const userId = getUserId();
-  fetch('/api/profile', {
+  fetch(`${BASE_URL}/profile`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userId, examType })
@@ -63,7 +68,7 @@ export const loadProfile = async (examType) => {
   const userId = getUserId();
   try {
     const res = await fetch(
-      `/api/profile?userId=${encodeURIComponent(userId)}&examType=${encodeURIComponent(examType)}`,
+      `${BASE_URL}/profile?userId=${encodeURIComponent(userId)}&examType=${encodeURIComponent(examType)}`,
       { signal: AbortSignal.timeout(5000) }
     );
     if (res.ok) {
@@ -103,7 +108,7 @@ export const updateProfile = async (examType, questions, userAnswers) => {
   }));
 
   // D1 write (non-blocking)
-  fetch('/api/profile', {
+  fetch(`${BASE_URL}/profile`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userId, examType, sessionResults })
@@ -120,7 +125,7 @@ export const updateProfile = async (examType, questions, userAnswers) => {
     }));
 
   if (wrongAnswers.length > 0) {
-    fetch('/api/wrong-answers', {
+    fetch(`${BASE_URL}/wrong-answers`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId, examType, wrongAnswers })
@@ -238,7 +243,7 @@ export const getProfileSummary = (examType) => {
 
 export const getCommunityStats = async (examType) => {
   try {
-    const res = await fetch(`/api/community?examType=${encodeURIComponent(examType)}`, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(`${BASE_URL}/community?examType=${encodeURIComponent(examType)}`, { signal: AbortSignal.timeout(5000) });
     if (res.ok) return await res.json();
   } catch { /* non-fatal */ }
   return null;
@@ -247,7 +252,7 @@ export const getCommunityStats = async (examType) => {
 export const getWrongAnswerBank = async (examType, dueOnly = false) => {
   const userId = getUserId();
   try {
-    const url = `/api/wrong-answers?userId=${encodeURIComponent(userId)}&examType=${encodeURIComponent(examType)}&dueOnly=${dueOnly}`;
+    const url = `${BASE_URL}/wrong-answers?userId=${encodeURIComponent(userId)}&examType=${encodeURIComponent(examType)}&dueOnly=${dueOnly}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
     if (res.ok) return await res.json();
   } catch { /* non-fatal */ }
@@ -257,7 +262,7 @@ export const getWrongAnswerBank = async (examType, dueOnly = false) => {
 // ─── Clear reviewed wrong answers from D1 after review session ───────────────
 export const clearReviewedAnswers = (examType, questionHashes) => {
   const userId = getUserId();
-  fetch('/api/wrong-answers', {
+  fetch(`${BASE_URL}/wrong-answers`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userId, examType, questionHashes })

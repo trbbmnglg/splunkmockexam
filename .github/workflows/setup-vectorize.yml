@@ -65,21 +65,38 @@ jobs:
             exit 1
           fi
           echo "✓ CF_API_TOKEN is valid"
-          
-          echo "Verifying Vectorize index exists..."
+
+      - name: Create Vectorize index (if not exists)
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          echo "Checking if Vectorize index exists..."
           INDEX_RESPONSE=$(curl -s \
             -H "Authorization: Bearer $CF_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/vectorize/v2/indexes/splunk-docs-index")
+          
           if echo "$INDEX_RESPONSE" | grep -q '"success":true'; then
-            echo "✓ Vectorize index 'splunk-docs-index' found"
+            echo "✓ Vectorize index already exists — skipping creation"
           else
-            echo "ERROR: Vectorize index 'splunk-docs-index' not found."
-            echo "Please create it first:"
-            echo "  Cloudflare Dashboard → Vectorize → Create index"
-            echo "  Name: splunk-docs-index | Dimensions: 384 | Metric: Cosine"
-            echo ""
-            echo "API response: $INDEX_RESPONSE"
-            exit 1
+            echo "Index not found — creating splunk-docs-index..."
+            CREATE_RESPONSE=$(curl -s -X POST \
+              -H "Authorization: Bearer $CF_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data '{"name":"splunk-docs-index","config":{"dimensions":384,"metric":"cosine"}}' \
+              "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/vectorize/v2/indexes")
+            
+            if echo "$CREATE_RESPONSE" | grep -q '"success":true'; then
+              echo "✓ Vectorize index created successfully"
+              echo "Waiting 10s for index to become available..."
+              sleep 10
+            else
+              echo "ERROR: Failed to create Vectorize index"
+              echo "Response: $CREATE_RESPONSE"
+              echo ""
+              echo "Make sure your CF_API_TOKEN has 'Vectorize: Edit' permission."
+              exit 1
+            fi
           fi
 
       - name: Run ingestion script

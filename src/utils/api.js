@@ -1,4 +1,4 @@
-export const getEnvVar = (viteKey, craKey, fallback = '') => {
+const getEnvVar = (viteKey, craKey, fallback = '') => {
   try {
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[viteKey]) return import.meta.env[viteKey];
     if (typeof process !== 'undefined' && process.env && process.env[craKey]) return process.env[craKey];
@@ -6,11 +6,15 @@ export const getEnvVar = (viteKey, craKey, fallback = '') => {
   return fallback;
 };
 
-export const DEFAULT_GROQ_KEY = getEnvVar('VITE_GROQ_API_KEY', 'REACT_APP_GROQ_API_KEY', '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');
+/**
+ * DEFAULT_GROQ_KEY now looks for VITE_GROQ_TOKEN (Cloudflare/Vite standard)
+ * We have removed the deleted hardcoded key.
+ */
+export const DEFAULT_GROQ_KEY = getEnvVar('VITE_GROQ_TOKEN', 'REACT_APP_GROQ_TOKEN', '');
 export const CF_WEBHOOK_URL = getEnvVar('VITE_CF_WEBHOOK_URL', 'REACT_APP_CF_WEBHOOK_URL', '');
 export const CF_WEBHOOK_TOKEN = getEnvVar('VITE_CF_WEBHOOK_TOKEN', 'REACT_APP_CF_WEBHOOK_TOKEN', '');
 
-export const fetchWithRetry = async (url, options, maxRetries = 5, timeoutMs = 30000, returnText = false) => {
+export const fetchWithRetry = async (url, options, maxRetries = 5, timeoutMs = 30000) => {
   const delays = [1000, 2000, 4000, 8000];
   for (let i = 0; i < maxRetries; i++) {
     const controller = new AbortController();
@@ -19,9 +23,8 @@ export const fetchWithRetry = async (url, options, maxRetries = 5, timeoutMs = 3
     try {
       const response = await fetch(url, { ...options, signal: controller.signal });
       clearTimeout(timeoutId);
-
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      return returnText ? await response.text() : await response.json();
+      return await response.json();
     } catch (error) {
       clearTimeout(timeoutId);
       if (i === maxRetries - 1) throw error;
@@ -90,7 +93,6 @@ export const getFallbackQuestions = (examType, targetCount) => {
 
 export const generateDynamicQuestions = async (examType, config, apiKey) => {
   const provider = config.aiProvider;
-  
   const promptText = `${config.customPrompt}
   
 CRITICAL OUTPUT REQUIREMENT:
@@ -123,7 +125,12 @@ Each object must have the following exact keys:
     else if (provider === 'qwen') {
       const data = await fetchWithRetry(`https://openrouter.ai/api/v1/chat/completions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': window.location.href, 'X-Title': 'Splunk Mock Exam Generator' },
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': typeof window !== 'undefined' ? window.location.href : '',
+          'X-Title': 'Splunk Mock Exam Generator'
+        },
         body: JSON.stringify({ model: "qwen/qwen-2.5-72b-instruct", messages: [{ role: "system", content: "You output valid JSON arrays ONLY." }, { role: "user", content: promptText }] })
       });
       responseText = data.choices?.[0]?.message?.content;
@@ -132,7 +139,10 @@ Each object must have the following exact keys:
       const data = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }], generationConfig: { responseMimeType: "application/json" } })
+        body: JSON.stringify({ 
+          contents: [{ parts: [{ text: promptText }] }], 
+          generationConfig: { responseMimeType: "application/json" } 
+        })
       });
       responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
     }

@@ -83,7 +83,8 @@ jobs:
             -H "Authorization: Bearer $CF_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/vectorize/v2/indexes/splunk-docs-index")
           
-          if echo "$INDEX_RESPONSE" | grep -q '"success":true'; then
+          # grep -E handles both "success":true and "success": true (with or without space)
+          if echo "$INDEX_RESPONSE" | grep -E -q '"success":\s*true'; then
             echo "✓ Vectorize index already exists — skipping creation"
           else
             echo "Index not found — creating splunk-docs-index..."
@@ -93,10 +94,12 @@ jobs:
               --data '{"name":"splunk-docs-index","config":{"dimensions":384,"metric":"cosine"}}' \
               "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/vectorize/v2/indexes")
             
-            if echo "$CREATE_RESPONSE" | grep -q '"success":true'; then
+            if echo "$CREATE_RESPONSE" | grep -E -q '"success":\s*true'; then
               echo "✓ Vectorize index created successfully"
               echo "Waiting 10s for index to become available..."
               sleep 10
+            elif echo "$CREATE_RESPONSE" | grep -q 'duplicate_name'; then
+              echo "✓ Index already exists (duplicate_name) — skipping creation"
             else
               echo "ERROR: Failed to create Vectorize index"
               echo "Response: $CREATE_RESPONSE"

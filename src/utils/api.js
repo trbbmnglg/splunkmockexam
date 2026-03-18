@@ -33,7 +33,17 @@ export const fetchWithRetry = async (url, options, maxRetries = 5, timeoutMs = 3
   }
 };
 
+/**
+ * Validates a submission using AI. 
+ * Automatically falls back to DEFAULT_GROQ_KEY if no apiKey is provided.
+ */
 export const validateSubmissionWithAI = async (data, apiKey) => {
+  const effectiveKey = apiKey || DEFAULT_GROQ_KEY;
+  
+  if (!effectiveKey) {
+    throw new Error("No Groq API key found. Please provide one in settings or check environment variables.");
+  }
+
   const prompt = `You are a strict validation AI for a Splunk Certification community.
 A user is submitting an official exam result with feedback.
 
@@ -53,7 +63,7 @@ OUTPUT REQUIREMENT: Output ONLY valid JSON, no markdown.
   try {
     const response = await fetchWithRetry(`https://api.groq.com/openai/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveKey}` },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
         messages: [{ role: "system", content: "You output valid JSON ONLY." }, { role: "user", content: prompt }],
@@ -91,8 +101,20 @@ export const getFallbackQuestions = (examType, targetCount) => {
   return result.slice(0, targetCount);
 };
 
+/**
+ * Generates exam questions. 
+ * If using 'llama', it will fall back to DEFAULT_GROQ_KEY if the provided key is empty.
+ */
 export const generateDynamicQuestions = async (examType, config, apiKey) => {
   const provider = config.aiProvider;
+  
+  // Use provided key, but fall back to system default for Llama if empty
+  const effectiveKey = provider === 'llama' ? (apiKey || DEFAULT_GROQ_KEY) : apiKey;
+
+  if (!effectiveKey) {
+    throw new Error(`API Key for ${provider.toUpperCase()} is missing. Please provide one in Advanced Settings.`);
+  }
+
   const promptText = `${config.customPrompt}
   
 CRITICAL OUTPUT REQUIREMENT:
@@ -109,7 +131,7 @@ Each object must have the following exact keys:
     if (provider === 'perplexity') {
       const data = await fetchWithRetry(`https://api.perplexity.ai/chat/completions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveKey}` },
         body: JSON.stringify({ model: "sonar-pro", messages: [{ role: "system", content: "You output JSON arrays ONLY." }, { role: "user", content: promptText }] })
       });
       responseText = data.choices?.[0]?.message?.content;
@@ -117,7 +139,7 @@ Each object must have the following exact keys:
     else if (provider === 'llama') {
       const data = await fetchWithRetry(`https://api.groq.com/openai/v1/chat/completions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveKey}` },
         body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "system", content: "You output valid JSON arrays ONLY." }, { role: "user", content: promptText }] })
       });
       responseText = data.choices?.[0]?.message?.content;
@@ -127,7 +149,7 @@ Each object must have the following exact keys:
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json', 
-          'Authorization': `Bearer ${apiKey}`,
+          'Authorization': `Bearer ${effectiveKey}`,
           'HTTP-Referer': typeof window !== 'undefined' ? window.location.href : '',
           'X-Title': 'Splunk Mock Exam Generator'
         },
@@ -136,7 +158,7 @@ Each object must have the following exact keys:
       responseText = data.choices?.[0]?.message?.content;
     }
     else if (provider === 'gemini') {
-      const data = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      const data = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${effectiveKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 

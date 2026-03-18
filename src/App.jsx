@@ -5,6 +5,7 @@ import { CURRENT_YEAR, YEAR_RANGE, TOPICS, CERT_CARDS, TOPIC_LINKS, API_KEY_URLS
 import { DEFAULT_GROQ_KEY, CF_WEBHOOK_URL, CF_WEBHOOK_TOKEN, validateSubmissionWithAI, generateDynamicQuestions } from './utils/api';
 import { runValidationPipeline } from './utils/agentValidator';
 import { updateProfile, buildAdaptiveContext, getProfileSummary, clearProfile } from './utils/agentAdaptive';
+import { fetchExplanation } from './utils/agentExplainer';
 
 // ─── Consent section definitions ───────────────────────────────────────────
 const CONSENT_SECTIONS = [
@@ -56,7 +57,139 @@ This tool does not sell your personal information. API keys are stored locally i
   }
 ];
 
-// ─── BlueprintPanel — proper component so useState is legal ─────────────────
+// ─── WrongAnswerCard — lazy explanation per missed question ──────────────────
+function WrongAnswerCard({ questionIndex, question, yourAnswer, correctAnswer, allOptions, topic, examType, blueprintLevel, apiKey }) {
+  const [state, setState] = useState('idle'); // idle | loading | done | error
+  const [explanation, setExplanation] = useState(null);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const handleExpand = async () => {
+    if (open) { setOpen(false); return; }
+    setOpen(true);
+    if (state !== 'idle') return; // already fetched or loading
+
+    setState('loading');
+    try {
+      const result = await fetchExplanation(
+        { question, yourAnswer, correctAnswer, allOptions, topic, examType, blueprintLevel },
+        apiKey
+      );
+      setExplanation(result);
+      setState('done');
+    } catch (err) {
+      setErrorMsg(err.message);
+      setState('error');
+    }
+  };
+
+  return (
+    <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+      {/* Question header — always visible */}
+      <div className="p-4 bg-white">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-grow min-w-0">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Q{questionIndex + 1}</span>
+              <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium truncate">{topic}</span>
+            </div>
+            <p className="text-sm font-medium text-slate-800 leading-relaxed">{question}</p>
+
+            {/* Answer comparison */}
+            <div className="mt-3 space-y-1.5">
+              <div className="flex items-start gap-2">
+                <XCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                <span className="text-xs text-red-700 leading-relaxed">
+                  <span className="font-semibold">You answered:</span> {yourAnswer}
+                </span>
+              </div>
+              <div className="flex items-start gap-2">
+                <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                <span className="text-xs text-green-700 leading-relaxed">
+                  <span className="font-semibold">Correct answer:</span> {correctAnswer}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Expand button */}
+          <button
+            onClick={handleExpand}
+            className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all border ${
+              open
+                ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200'
+            }`}
+          >
+            {state === 'loading' ? (
+              <><div className="w-3 h-3 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" /> Explaining...</>
+            ) : (
+              <>{open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />} {open ? 'Hide' : 'Why?'}</>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Explanation panel — shown when expanded and loaded */}
+      {open && state === 'loading' && (
+        <div className="px-4 pb-4 pt-1 bg-indigo-50/50 border-t border-slate-100">
+          <div className="flex items-center gap-2 text-indigo-600 text-sm">
+            <div className="w-4 h-4 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin flex-shrink-0" />
+            <span>Generating explanation...</span>
+          </div>
+        </div>
+      )}
+
+      {open && state === 'error' && (
+        <div className="px-4 pb-4 pt-1 bg-red-50 border-t border-red-100">
+          <div className="flex items-center gap-2 text-red-600 text-sm">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            <span>{errorMsg}</span>
+            <button
+              onClick={() => { setState('idle'); handleExpand(); }}
+              className="ml-auto text-xs underline hover:no-underline"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
+      {open && state === 'done' && explanation && (
+        <div className="px-4 pb-4 pt-3 bg-gradient-to-b from-indigo-50/60 to-white border-t border-indigo-100 space-y-3 animate-fade-in">
+          {/* Main explanation */}
+          <p className="text-sm text-slate-700 leading-relaxed">{explanation.explanation}</p>
+
+          {/* Key takeaway */}
+          {explanation.keyTakeaway && (
+            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <Star className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+              <p className="text-xs font-medium text-amber-800 leading-relaxed">{explanation.keyTakeaway}</p>
+            </div>
+          )}
+
+          {/* Doc hint */}
+          {explanation.docHint && (
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <BookOpen className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>{explanation.docHint}</span>
+              <a
+                href={`https://docs.splunk.com/Documentation/Splunk/latest/Search?q=${encodeURIComponent(topic)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ml-auto flex items-center gap-1 text-pink-600 hover:text-pink-800 font-semibold transition-colors"
+              >
+                Open Docs <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 const LEVEL_COLORS = {
   'Foundational-Level': 'bg-green-100 text-green-700',
   'Entry-Level':        'bg-blue-100 text-blue-700',
@@ -1293,6 +1426,55 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
               )}
             </div>
         </div>
+
+        {/* ── Wrong Answer Review Section ────────────────────────────────── */}
+        {(() => {
+          const wrongAnswers = questions
+            .map((q, idx) => ({ q, idx }))
+            .filter(({ q, idx }) => userAnswers[idx] !== q.correctIndex);
+
+          if (wrongAnswers.length === 0) return null;
+
+          const bp = EXAM_BLUEPRINTS[examType];
+          const groqKey = apiKeys['llama'] || DEFAULT_GROQ_KEY;
+
+          return (
+            <div className="bg-white rounded-2xl shadow-md border border-slate-100 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                    <XCircle className="w-6 h-6 text-red-500" />
+                    Wrong Answer Review
+                  </h3>
+                  <p className="text-sm text-slate-500 mt-1">
+                    {wrongAnswers.length} missed question{wrongAnswers.length !== 1 ? 's' : ''} — click <span className="font-semibold text-indigo-600">Why?</span> on any question for an AI explanation
+                  </p>
+                </div>
+                <div className="hidden sm:flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold px-3 py-2 rounded-lg">
+                  <Zap className="w-3.5 h-3.5" /> AI-Powered Explanations
+                </div>
+              </div>
+
+              <div className="p-6 space-y-4">
+                {wrongAnswers.map(({ q, idx }) => (
+                  <WrongAnswerCard
+                    key={idx}
+                    questionIndex={idx}
+                    question={q.question}
+                    yourAnswer={q.options[userAnswers[idx]] ?? 'No answer selected'}
+                    correctAnswer={q.options[q.correctIndex]}
+                    allOptions={q.options}
+                    topic={q.topic}
+                    examType={examType}
+                    blueprintLevel={bp?.level || 'Intermediate-Level'}
+                    apiKey={groqKey}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
       </div>
     );
   };

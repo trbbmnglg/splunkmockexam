@@ -1,7 +1,7 @@
-import profileHandler from './routes/profile.js';
-import communityHandler from './routes/community.js';
-import wrongAnswersHandler from './routes/wrongAnswers.js';
-import { handleRetrieve } from './routes/retrieve.js'; // Use named import
+import { handleProfile } from './routes/profile.js';
+import { handleCommunity } from './routes/community.js';
+import { handleWrongAnswers } from './routes/wrongAnswers.js';
+import { handleRetrieve } from './routes/retrieve.js';
 
 // Standard CORS headers for your API
 const corsHeaders = {
@@ -32,20 +32,19 @@ export default {
 
     try {
       // 2. Route the requests to their specific handlers
-      // Most of your existing handlers likely expect (request, env, ok, err)
+      // Mapping to the named exports from your route files
       if (url.pathname === '/api/profile') {
-        return await profileHandler(request, env, ok, err);
+        return await handleProfile(request, env, ok, err);
       }
       
       if (url.pathname === '/api/community') {
-        return await communityHandler(request, env, ok, err);
+        return await handleCommunity(request, env, ok, err);
       }
       
       if (url.pathname === '/api/wrongAnswers' || url.pathname === '/api/wrong-answers') {
-        return await wrongAnswersHandler(request, env, ok, err);
+        return await handleWrongAnswers(request, env, ok, err);
       }
       
-      // Map the /api/retrieve endpoint correctly
       if (url.pathname === '/api/retrieve') {
         return await handleRetrieve(request, env, ok, err);
       }

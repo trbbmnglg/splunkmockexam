@@ -1,0 +1,137 @@
+# .github/workflows/setup-vectorize.yml
+#
+# One-time setup workflow for Layer 2 RAG ingestion.
+# Run this ONCE after creating the Vectorize index in the Cloudflare dashboard.
+#
+# Trigger: Manual only (workflow_dispatch)
+# Go to: GitHub repo → Actions → "Layer 2: Setup Vectorize & Ingest Docs" → Run workflow
+#
+# Required GitHub Secrets (Settings → Secrets and variables → Actions):
+#   CF_API_TOKEN   — Cloudflare API token with Workers AI + Vectorize permissions
+#   CF_ACCOUNT_ID  — Your Cloudflare account ID (found in dashboard URL or Overview page)
+#
+# Runtime: ~15-30 minutes depending on Splunk docs server response times
+# Cost: Free tier — uses Workers AI (free 10k neurons/day) + Vectorize (free 30M dimensions)
+
+name: "Layer 2: Setup Vectorize & Ingest Docs"
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (fetch + chunk but skip embedding/upload)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      cert_filter:
+        description: "Only ingest specific cert (leave blank for all 9)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  ingest:
+    name: Scrape, Embed & Upload to Vectorize
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify Cloudflare credentials
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          echo "Verifying Cloudflare API token..."
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/user/tokens/verify")
+          if [ "$RESPONSE" != "200" ]; then
+            echo "ERROR: CF_API_TOKEN is invalid or expired (HTTP $RESPONSE)"
+            exit 1
+          fi
+          echo "✓ CF_API_TOKEN is valid"
+          
+          echo "Verifying Vectorize index exists..."
+          INDEX_RESPONSE=$(curl -s \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/vectorize/v2/indexes/splunk-docs-index")
+          if echo "$INDEX_RESPONSE" | grep -q '"success":true'; then
+            echo "✓ Vectorize index 'splunk-docs-index' found"
+          else
+            echo "ERROR: Vectorize index 'splunk-docs-index' not found."
+            echo "Please create it first:"
+            echo "  Cloudflare Dashboard → Vectorize → Create index"
+            echo "  Name: splunk-docs-index | Dimensions: 384 | Metric: Cosine"
+            echo ""
+            echo "API response: $INDEX_RESPONSE"
+            exit 1
+          fi
+
+      - name: Run ingestion script
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          CERT_FILTER: ${{ inputs.cert_filter }}
+        run: |
+          echo "Starting ingestion..."
+          echo "Dry run: $DRY_RUN"
+          echo "Cert filter: ${CERT_FILTER:-'all certs'}"
+          node scripts/ingest.js
+
+      - name: Verify ingestion results
+        if: inputs.dry_run == 'false'
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          echo "Checking Vectorize index stats..."
+          curl -s \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/vectorize/v2/indexes/splunk-docs-index" \
+            | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          if data.get('success'):
+              idx = data['result']
+              print(f'Index name:      {idx.get(\"name\")}')
+              print(f'Dimensions:      {idx.get(\"config\", {}).get(\"dimensions\")}')
+              print(f'Metric:          {idx.get(\"config\", {}).get(\"metric\")}')
+              print('✓ Vectorize index is healthy')
+          else:
+              print('WARNING: Could not retrieve index stats')
+              print(json.dumps(data, indent=2))
+          "
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "=== Layer 2 Setup Summary ==="
+          echo "Vectorize index: splunk-docs-index"
+          echo "Embedding model: @cf/baai/bge-small-en-v1.5 (384 dimensions)"
+          echo ""
+          echo "Next steps:"
+          echo "1. Add Vectorize binding to Cloudflare Worker (if not already done):"
+          echo "   Dashboard → splunkmockexam → Settings → Bindings → Add Vectorize"
+          echo "   Variable: VECTORIZE | Index: splunk-docs-index"
+          echo "2. Add Workers AI binding:"
+          echo "   Dashboard → splunkmockexam → Settings → Bindings → Add Workers AI"  
+          echo "   Variable: AI"
+          echo "3. Push wrangler.toml changes to trigger redeploy"
+          echo ""
+          echo "Layer 2 RAG is now active. Questions will be grounded in Splunk docs."

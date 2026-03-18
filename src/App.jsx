@@ -386,7 +386,14 @@ export default function App() {
       const topicParams = topics.length > 0
         ? topics.map(t => `topics[]=${encodeURIComponent(t)}`).join('&')
         : '';
-      const url = `/api/retrieve?examType=${encodeURIComponent(examType)}${topicParams ? '&' + topicParams : ''}`;
+        
+      // FIX: Dynamically route to local Vite proxy OR production Cloudflare Worker
+      const BASE_URL = import.meta.env.MODE === 'development' 
+        ? '/api' 
+        : 'https://splunkmockexam.gtaad-innovations.com/api';
+        
+      const url = `${BASE_URL}/retrieve?examType=${encodeURIComponent(examType)}${topicParams ? '&' + topicParams : ''}`;
+      
       const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (res.ok) {
         const data = await res.json();

@@ -253,3 +253,13 @@ export const getWrongAnswerBank = async (examType, dueOnly = false) => {
   } catch { /* non-fatal */ }
   return { wrongAnswers: [], dueCount: 0 };
 };
+
+// ─── Clear reviewed wrong answers from D1 after review session ───────────────
+export const clearReviewedAnswers = (examType, questionHashes) => {
+  const userId = getUserId();
+  fetch('/api/wrong-answers', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, examType, questionHashes })
+  }).catch(err => console.warn('[Adaptive] Clear reviewed answers failed:', err.message));
+};

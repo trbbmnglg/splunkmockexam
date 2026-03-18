@@ -60,7 +60,7 @@ This tool does not sell your personal information. API keys are stored locally i
 ];
 
 // ─── WrongAnswerCard — lazy explanation per missed question ──────────────────
-function WrongAnswerCard({ questionIndex, question, yourAnswer, correctAnswer, allOptions, topic, examType, blueprintLevel, apiKey }) {
+function WrongAnswerCard({ questionIndex, question, yourAnswer, correctAnswer, allOptions, topic, examType, blueprintLevel, apiKey, docSource }) {
   const [state, setState] = useState('idle'); // idle | loading | done | error
   const [explanation, setExplanation] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
@@ -183,7 +183,7 @@ function WrongAnswerCard({ questionIndex, question, yourAnswer, correctAnswer, a
               <BookOpen className="w-3.5 h-3.5 flex-shrink-0" />
               <span>{explanation.docHint}</span>
               <a
-                href={`https://docs.splunk.com/Documentation/Splunk/latest/Search?q=${encodeURIComponent(topic)}`}
+                href={docSource || `https://docs.splunk.com/Documentation/Splunk/latest/Search?q=${encodeURIComponent(topic)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="ml-auto flex items-center gap-1 text-pink-600 hover:text-pink-800 font-semibold transition-colors"
@@ -320,6 +320,7 @@ export default function App() {
   const [communityStats, setCommunityStats] = useState({}); // { [examType]: { topics: [...] } }
   const [isReviewMode, setIsReviewMode] = useState(false); // true when exam is a review session
   const [reviewQuestionHashes, setReviewQuestionHashes] = useState([]); // hashes of D1 questions to clear after review
+  const [docPassages, setDocPassages] = useState([]); // Layer 2: retrieved doc passages for current exam
   
   const [apiKeys, setApiKeys] = useState(() => {
     const VALID_PROVIDERS = { perplexity: '', gemini: '', llama: DEFAULT_GROQ_KEY, qwen: '' };
@@ -378,7 +379,26 @@ export default function App() {
     return [correctAnswer, ...picked];
   };
 
-  const buildAgenticPrompt = useCallback((type, num, topics, provider) => {
+
+  // ── Layer 2: Fetch relevant doc passages from Vectorize ─────────────────
+  const fetchDocPassages = async (examType, topics) => {
+    try {
+      const topicParams = topics.length > 0
+        ? topics.map(t => `topics[]=${encodeURIComponent(t)}`).join('&')
+        : '';
+      const url = `/api/retrieve?examType=${encodeURIComponent(examType)}${topicParams ? '&' + topicParams : ''}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (res.ok) {
+        const data = await res.json();
+        return data.passages || [];
+      }
+    } catch (err) {
+      console.warn('[Layer2] Doc retrieval failed, continuing without RAG:', err.message);
+    }
+    return [];
+  };
+
+  const buildAgenticPrompt = useCallback((type, num, topics, provider, passages = []) => {
     if (!type) return "";
 
     const bp = EXAM_BLUEPRINTS[type];
@@ -450,7 +470,18 @@ ${difficulty}
 TOPIC DISTRIBUTION — follow these counts exactly:
 ${topicDistribution}
 ${adaptivePromptSection}
-QUESTION QUALITY RULES — every question must follow ALL of these:
+${passages.length > 0 ? `
+REFERENCE DOCUMENTATION — Base your questions on these official Splunk documentation passages.
+Every question MUST be grounded in the content below. For each question, include a "docSource" field
+with the URL of the passage that most directly supports that question.
+
+${passages.slice(0, 12).map((p, i) => `[DOC ${i+1}] Topic: ${p.topic}
+Source: ${p.url}
+---
+${p.text.slice(0, 600)}
+---`).join('\n\n')}
+
+` : ''}QUESTION QUALITY RULES — every question must follow ALL of these:
 1. Each question tests ONE specific, distinct concept. No two questions may test the same concept, even if the topic is the same.
 2. Options must be grammatically parallel and similar in length (within ~10 words of each other). Never mix full sentences with single words as options.
 3. All 4 options must be plausible to someone with partial knowledge — distractors should reflect real common misconceptions, not obvious wrong answers.
@@ -463,7 +494,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
 
   useEffect(() => {
     if (!userEditedPrompt && examType) {
-      setExamConfig(prev => ({ ...prev, customPrompt: buildAgenticPrompt(examType, prev.numQuestions, prev.selectedTopics, prev.aiProvider) }));
+      setExamConfig(prev => ({ ...prev, customPrompt: buildAgenticPrompt(examType, prev.numQuestions, prev.selectedTopics, prev.aiProvider, docPassages) }));
     }
   }, [examType, examConfig.numQuestions, examConfig.selectedTopics, examConfig.aiProvider, userEditedPrompt, buildAgenticPrompt]);
 
@@ -555,9 +586,22 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     }
 
     setGameState('loading');
+    setLoadingText('Retrieving relevant Splunk documentation...');
+
+    // ── Layer 2: Fetch doc passages from Vectorize ─────────────────────────
+    const passages = await fetchDocPassages(examType, examConfig.selectedTopics);
+    setDocPassages(passages);
+    if (passages.length > 0) {
+      console.log(`[Layer2] Retrieved ${passages.length} doc passages for grounding`);
+    }
+
+    // Rebuild prompt with passages injected
+    const promptWithDocs = buildAgenticPrompt(examType, examConfig.numQuestions, examConfig.selectedTopics, examConfig.aiProvider, passages);
+    const enrichedConfig = { ...examConfig, customPrompt: promptWithDocs };
+
     setLoadingText(`Generating ${examConfig.numQuestions} dynamic questions using ${examConfig.aiProvider.toUpperCase()}...`);
 
-    const { questions: fetchedQuestions, error } = await generateDynamicQuestions(examType, examConfig, currentKey);
+    const { questions: fetchedQuestions, error } = await generateDynamicQuestions(examType, enrichedConfig, currentKey);
     if (error) setApiError(error);
 
     if (!fetchedQuestions || !Array.isArray(fetchedQuestions) || fetchedQuestions.length === 0) {
@@ -601,7 +645,8 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
       return {
         ...q, question: safeQuestion, options: shuffledOptions,
         correctIndex: correctIndex !== -1 ? correctIndex : 0,
-        topic: typeof q.topic === 'string' ? q.topic : JSON.stringify(q?.topic || "General")
+        topic: typeof q.topic === 'string' ? q.topic : JSON.stringify(q?.topic || "General"),
+        docSource: typeof q.docSource === 'string' ? q.docSource : ''
       };
     });
 
@@ -634,6 +679,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     }
     setIsReviewMode(false);
     setReviewQuestionHashes([]);
+    setDocPassages([]);
     setGameState('results');
   }, [examType, questions, userAnswers, isReviewMode, reviewQuestionHashes]);
 
@@ -1402,7 +1448,17 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
 
         <div className="bg-white shadow-md border border-slate-200 rounded-lg overflow-hidden">
           <div className="p-6 md:p-8 border-b border-slate-100 flex justify-between items-start gap-4">
-            <h2 className="text-xl md:text-2xl font-semibold text-slate-800 leading-relaxed">{q.question}</h2>
+            <div className="flex-grow min-w-0">
+              <h2 className="text-xl md:text-2xl font-semibold text-slate-800 leading-relaxed">{q.question}</h2>
+              {q.docSource && (
+                <a href={q.docSource} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 mt-2 text-xs text-blue-500 hover:text-blue-700 transition-colors"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <BookOpen className="w-3 h-3" /> Source: Splunk Docs
+                </a>
+              )}
+            </div>
             <button onClick={() => setFlaggedQuestions(prev => ({ ...prev, [currentQuestionIndex]: !prev[currentQuestionIndex] }))}
               className={`flex-shrink-0 flex items-center px-3 py-2 text-sm rounded-md font-medium transition-colors border ${flaggedQuestions[currentQuestionIndex] ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`} title="Flag for review"
             >
@@ -1699,6 +1755,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
                     examType={examType}
                     blueprintLevel={bp?.level || 'Intermediate-Level'}
                     apiKey={groqKey}
+                    docSource={q.docSource || ''}
                   />
                 ))}
               </div>

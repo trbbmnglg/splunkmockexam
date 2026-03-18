@@ -1,0 +1,964 @@
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Clock, CheckCircle, XCircle, AlertTriangle, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, BookOpen, Award, RotateCcw, ShieldCheck, Flag, X, LayoutGrid, AlertCircle, Settings, Infinity, ListChecks, ExternalLink, Zap, Cloud, Server, Building, Briefcase, List, Cpu, Key, Lock, Star, Globe, LineChart, Target, Shield, FileText, Send, MessageSquare } from 'lucide-react';
+
+import { CURRENT_YEAR, YEAR_RANGE, TOPICS, CERT_CARDS, TOPIC_LINKS, API_KEY_URLS, PRODUCT_CONTEXT_MAP } from './utils/constants';
+import { DEFAULT_GROQ_KEY, CF_WEBHOOK_URL, CF_WEBHOOK_TOKEN, validateSubmissionWithAI, generateDynamicQuestions } from './utils/api';
+
+export default function App() {
+  const [hasConsented, setHasConsented] = useState(() => localStorage.getItem('splunkExamConsent') === 'true');
+  const [consentChecks, setConsentChecks] = useState([false, false, false, false]);
+
+  const [gameState, setGameState] = useState('menu'); 
+  const [viewMode, setViewMode] = useState('grid');
+  const [examType, setExamType] = useState(null);
+  
+  const [apiKeys, setApiKeys] = useState(() => {
+    const VALID_PROVIDERS = { perplexity: '', gemini: '', llama: DEFAULT_GROQ_KEY, qwen: '' };
+    try {
+      const saved = localStorage.getItem('splunkMockExamApiKeys');
+      if (!saved) return VALID_PROVIDERS;
+      const parsed = JSON.parse(saved);
+      const mergedKeys = { ...VALID_PROVIDERS, ...Object.fromEntries(Object.entries(parsed).filter(([k]) => k in VALID_PROVIDERS)) };
+      if (!mergedKeys.llama) mergedKeys.llama = DEFAULT_GROQ_KEY;
+      return mergedKeys;
+    } catch (e) { return VALID_PROVIDERS; }
+  });
+
+  const [examConfig, setExamConfig] = useState({
+    numQuestions: 20, selectedTopics: [], useTimer: true, aiProvider: 'llama', customPrompt: ''
+  });
+  
+  const [userEditedPrompt, setUserEditedPrompt] = useState(false);
+  const [questions, setQuestions] = useState([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [userAnswers, setUserAnswers] = useState({});
+  const [timeRemaining, setTimeRemaining] = useState(0);
+  const [loadingText, setLoadingText] = useState("");
+  const [apiError, setApiError] = useState(null);
+
+  const [flaggedQuestions, setFlaggedQuestions] = useState({});
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showGrid, setShowGrid] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false); 
+  
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackState, setFeedbackState] = useState({ loading: false, success: false, error: null });
+  const [feedbackForm, setFeedbackForm] = useState({ exam: '', status: 'pass', evidence: '', feedback: '' });
+
+  const timerRef = useRef(null);
+
+  const buildAgenticPrompt = useCallback((type, num, topics, provider) => {
+    if (!type) return "";
+    const topicText = topics.length > 0 ? `Focus strictly on these exact domains: ${topics.join(', ')}.` : `Ensure broad and balanced coverage across all domains of the ${type} certification blueprint.`;
+    const providerContext = provider === 'perplexity' ? `Utilize your live web search capabilities to cross-reference the absolute latest ${YEAR_RANGE} Splunk documentation.` : `Rely on your deep foundational knowledge of the relevant Splunk product suite.`;
+    const productContext = PRODUCT_CONTEXT_MAP[type] || 'Splunk Enterprise and Splunk Cloud Platform';
+
+    return `You are an expert Splunk Certification Architect evaluating a candidate for the "${type}" certification.
+
+MISSION:
+Generate a highly realistic, challenging mock exam consisting of exactly ${num} questions.
+${topicText}
+
+PRODUCT SCOPE:
+Questions must be grounded specifically in: ${productContext}.
+
+CONTEXT & KNOWLEDGE:
+${providerContext}
+
+STRICT GENERATION RULES:
+1. Scenario-Driven: Avoid basic vocabulary/trivia. Present realistic troubleshooting logs or architecture scaling scenarios.
+2. Plausible Distractors: Every incorrect option must represent a highly common real-world misconception.
+3. No Lazy Options: NEVER use "All of the above" or "None of the above".
+4. Absolute Accuracy: The correct answer must be unambiguous and technically indisputable according to official Splunk documentation.`;
+  }, []);
+
+  useEffect(() => {
+    if (!userEditedPrompt && examType) {
+      setExamConfig(prev => ({ ...prev, customPrompt: buildAgenticPrompt(examType, prev.numQuestions, prev.selectedTopics, prev.aiProvider) }));
+    }
+  }, [examType, examConfig.numQuestions, examConfig.selectedTopics, examConfig.aiProvider, userEditedPrompt, buildAgenticPrompt]);
+
+  useEffect(() => {
+    if (gameState === 'exam' && examConfig.useTimer) {
+      timerRef.current = setInterval(() => {
+        setTimeRemaining((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            setGameState('results'); 
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(timerRef.current);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [gameState, examConfig.useTimer]);
+
+  const handleSelectExamType = useCallback((selectedType) => {
+    setExamType(selectedType);
+    setUserEditedPrompt(false);
+    setExamConfig(prev => ({ ...prev, numQuestions: selectedType === 'Power User' ? 25 : 20, selectedTopics: [], useTimer: true }));
+    setGameState('config');
+  }, []);
+
+  const updateApiKey = useCallback((provider, value) => {
+    setApiKeys(prevKeys => {
+      const newKeys = { ...prevKeys, [provider]: value };
+      localStorage.setItem('splunkMockExamApiKeys', JSON.stringify(newKeys));
+      return newKeys;
+    });
+  }, []);
+
+  const toggleTopic = useCallback((topic) => {
+    setExamConfig(prev => {
+      const selected = prev.selectedTopics.includes(topic) ? prev.selectedTopics.filter(t => t !== topic) : [...prev.selectedTopics, topic];
+      return { ...prev, selectedTopics: selected };
+    });
+  }, []);
+
+  const handleStartExam = useCallback(async () => {
+    const currentKey = apiKeys[examConfig.aiProvider];
+    if (!currentKey || currentKey.trim() === '') {
+      setApiError(`Please enter an API key for ${examConfig.aiProvider.toUpperCase()} in the Advanced Settings to generate the exam.`);
+      return;
+    }
+
+    setGameState('loading');
+    setLoadingText(`Generating ${examConfig.numQuestions} dynamic questions using ${examConfig.aiProvider.toUpperCase()}...`);
+    
+    const { questions: fetchedQuestions, error } = await generateDynamicQuestions(examType, examConfig, currentKey);
+    if (error) setApiError(error);
+
+    if (!fetchedQuestions || !Array.isArray(fetchedQuestions) || fetchedQuestions.length === 0) {
+      setApiError(prev => prev || "The AI generated an invalid or empty set of questions.");
+      setGameState('menu');
+      return;
+    }
+
+    const randomizedQuestions = fetchedQuestions.map(q => {
+      const safeQuestion = typeof q.question === 'string' ? q.question : JSON.stringify(q?.question || "Missing question text");
+      const safeAnswer = typeof q.answer === 'string' ? q.answer : JSON.stringify(q?.answer || "Missing answer text");
+      
+      let safeOptions = q.options;
+      if (!Array.isArray(safeOptions)) {
+        if (typeof safeOptions === 'object' && safeOptions !== null) safeOptions = Object.values(safeOptions);
+        else safeOptions = [String(safeOptions || "Option A"), "Option B", "Option C", "Option D"];
+      }
+      safeOptions = safeOptions.map(opt => typeof opt === 'string' ? opt : JSON.stringify(opt || ""));
+      while (safeOptions.length < 4) safeOptions.push(`Dummy Option ${safeOptions.length + 1}`);
+
+      const shuffledOptions = [...safeOptions].sort(() => Math.random() - 0.5);
+      const correctIndex = shuffledOptions.findIndex(opt => opt === safeAnswer);
+      
+      return { 
+        ...q, question: safeQuestion, options: shuffledOptions, 
+        correctIndex: correctIndex !== -1 ? correctIndex : 0,
+        topic: typeof q.topic === 'string' ? q.topic : JSON.stringify(q?.topic || "General")
+      };
+    });
+
+    setQuestions(randomizedQuestions);
+    setUserAnswers({});
+    setFlaggedQuestions({});
+    setCurrentQuestionIndex(0);
+    
+    const timePerQuestionSeconds = 52; 
+    setTimeRemaining(randomizedQuestions.length * timePerQuestionSeconds);
+    setGameState('exam');
+  }, [apiKeys, examConfig, examType]);
+
+  const handleAnswerSelect = useCallback((optionIndex) => { setUserAnswers(prev => ({ ...prev, [currentQuestionIndex]: optionIndex })); }, [currentQuestionIndex]);
+  const nextQuestion = useCallback(() => { setCurrentQuestionIndex(prev => prev < questions.length - 1 ? prev + 1 : prev); }, [questions.length]);
+  const prevQuestion = useCallback(() => { setCurrentQuestionIndex(prev => prev > 0 ? prev - 1 : prev); }, []);
+  const finishExam = useCallback(() => { setGameState('results'); }, []);
+
+  const keyboardStateRef = useRef({ currentQuestionIndex, questionsLength: questions.length, showGrid, showCancelModal, gameState });
+  useEffect(() => { keyboardStateRef.current = { currentQuestionIndex, questionsLength: questions.length, showGrid, showCancelModal, gameState }; }, [currentQuestionIndex, questions.length, showGrid, showCancelModal, gameState]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const state = keyboardStateRef.current;
+      if (state.gameState !== 'exam' || state.showGrid || state.showCancelModal) return;
+      if (e.key === 'ArrowRight' && state.currentQuestionIndex < state.questionsLength - 1) setCurrentQuestionIndex(prev => prev + 1);
+      if (e.key === 'ArrowLeft' && state.currentQuestionIndex > 0) setCurrentQuestionIndex(prev => prev - 1);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const formatTime = (seconds) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const resultsData = useMemo(() => {
+    if (gameState !== 'results') return null;
+    let correct = 0;
+    const weakTopicsMap = {};
+
+    questions.forEach((q, index) => {
+      if (!q) return; 
+      const isCorrect = userAnswers[index] === q.correctIndex;
+      if (isCorrect) correct++;
+      else {
+        const t = q.topic || "Unknown Topic";
+        weakTopicsMap[t] = (weakTopicsMap[t] || 0) + 1;
+      }
+    });
+
+    const score = Math.round((correct / questions.length) * 100);
+    const passed = score >= 70;
+    const topicsToReview = Object.keys(weakTopicsMap)
+      .map(topic => ({ topic, errors: weakTopicsMap[topic] }))
+      .sort((a, b) => b.errors - a.errors);
+
+    return { correct, total: questions.length, score, passed, topicsToReview };
+  }, [gameState, questions, userAnswers]);
+
+  const handleFeedbackSubmit = async (e) => {
+    e.preventDefault();
+    setFeedbackState({ loading: true, success: false, error: null });
+
+    try {
+      const apiKey = apiKeys['llama'] || DEFAULT_GROQ_KEY;
+      const validation = await validateSubmissionWithAI(feedbackForm, apiKey);
+
+      if (!validation.isValid) {
+        setFeedbackState({ loading: false, success: false, error: `Validation Failed: ${validation.reason}` });
+        return;
+      }
+
+      if (CF_WEBHOOK_URL) {
+        const response = await fetch(CF_WEBHOOK_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(CF_WEBHOOK_TOKEN ? { 'Authorization': `Bearer ${CF_WEBHOOK_TOKEN}` } : {})
+          },
+          body: JSON.stringify({
+            targetEmail: "web.rbbjr@gmail.com",
+            exam: feedbackForm.exam,
+            status: feedbackForm.status,
+            evidence: feedbackForm.evidence,
+            feedback: feedbackForm.feedback,
+            validationConfidence: validation.confidenceScore,
+            timestamp: new Date().toISOString()
+          })
+        });
+
+        if (!response.ok) throw new Error("Failed to forward data to the webhook.");
+      }
+
+      setFeedbackState({ loading: false, success: true, error: null });
+      setFeedbackForm({ exam: '', status: 'pass', evidence: '', feedback: '' });
+      setTimeout(() => setShowFeedbackModal(false), 3000);
+
+    } catch (err) {
+      setFeedbackState({ loading: false, success: false, error: err.message || "An unexpected error occurred." });
+    }
+  };
+
+  const renderConsentModal = () => {
+    if (hasConsented) return null;
+
+    const allChecked = consentChecks.every(Boolean);
+
+    const toggleCheck = (idx) => {
+      const newChecks = [...consentChecks];
+      newChecks[idx] = !newChecks[idx];
+      setConsentChecks(newChecks);
+    };
+
+    const handleConsent = () => {
+      if (allChecked) {
+        localStorage.setItem('splunkExamConsent', 'true');
+        setHasConsented(true);
+      }
+    };
+
+    return (
+      <div className="fixed inset-0 bg-[#0f172a] z-[100] flex items-center justify-center p-4 md:p-8 overflow-y-auto">
+        <div className="bg-[#1e293b] border border-[#334155] max-w-3xl w-full shadow-2xl animate-fade-in text-slate-300 rounded-xl overflow-hidden flex flex-col max-h-full">
+          
+          <div className="p-6 md:p-8 border-b border-[#334155] bg-[#0f172a]/50 flex items-center gap-4 flex-shrink-0">
+            <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400">
+              <Shield className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold text-white">Data & Privacy Consent</h2>
+              <p className="text-sm text-slate-400 mt-1">Mock Exam Generator — Please read before proceeding</p>
+            </div>
+          </div>
+
+          <div className="p-6 md:p-8 space-y-6 overflow-y-auto flex-grow">
+            <p className="text-sm text-slate-300">Before using this tool, please read and acknowledge the following data processing and privacy disclosures. This is required under applicable privacy and AI regulations.</p>
+
+            <div className="space-y-3">
+              {['1. What This Tool Does', '2. Data Collected & Processed', '3. AI Features & Third-Party Data Transmission', '4. GDPR — General Data Protection Regulation (EU)', '5. PDPA — Data Privacy Act of 2012 (Philippines, RA 10173)', '6. EU AI Act — Regulation (EU) 2024/1689', '7. CCPA — California Consumer Privacy Act (US)'].map((title, i) => (
+                <div key={i} className="flex items-center justify-between p-4 bg-[#0f172a]/50 border border-[#334155] rounded-lg cursor-not-allowed opacity-80">
+                  <span className="font-semibold text-white">{title}</span>
+                  <ChevronDown className="w-5 h-5 text-slate-500" />
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-6">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Please confirm each item to proceed</h3>
+              <div className="space-y-3">
+                {[
+                  "I have read and understood how this tool stores and processes data, including that session data is locally stored and not transmitted to proprietary servers except where AI features are triggered.",
+                  "I understand that using AI features will transmit generation queries to a third-party AI provider (Groq/Meta/Google), and that sensitive data should not be pasted.",
+                  "I acknowledge the disclosures made under the Philippine Data Privacy Act (RA 10173), including cross-border data transfer when AI features are used.",
+                  "I understand this tool uses low-risk AI systems under the EU AI Act, that AI-generated content requires my review before use, and that I retain full human oversight."
+                ].map((text, idx) => (
+                  <label key={idx} className={`flex items-start p-4 border rounded-lg cursor-pointer transition-colors ${consentChecks[idx] ? 'bg-blue-900/20 border-blue-500/50' : 'bg-[#0f172a]/50 border-[#334155] hover:border-slate-500'}`}>
+                    <div className="relative flex items-center justify-center w-6 h-6 border-2 rounded-full border-slate-500 mr-4 flex-shrink-0 mt-0.5 transition-colors">
+                       <input type="checkbox" className="opacity-0 absolute inset-0 cursor-pointer" checked={consentChecks[idx]} onChange={() => toggleCheck(idx)} />
+                       {consentChecks[idx] && <div className="w-3 h-3 bg-blue-500 rounded-full"></div>}
+                    </div>
+                    <span className={`text-sm leading-relaxed ${consentChecks[idx] ? 'text-slate-200' : 'text-slate-400'}`}>{text}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="p-6 md:p-8 bg-[#0f172a] border-t border-[#334155] flex flex-col sm:flex-row gap-4 flex-shrink-0">
+            <button className="flex-1 py-4 font-semibold text-slate-400 bg-[#1e293b] rounded-lg hover:bg-slate-800 transition-colors">Decline & Exit</button>
+            <button onClick={handleConsent} disabled={!allChecked} className={`flex-1 py-4 font-bold rounded-lg transition-all ${allChecked ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-900/20' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}>
+              Confirm all {consentChecks.filter(Boolean).length}/4 items above
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderFeedbackModal = () => {
+    if (!showFeedbackModal) return null;
+
+    return (
+      <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4 overflow-y-auto">
+        <div className="bg-white max-w-2xl w-full shadow-2xl animate-fade-in border border-slate-200 rounded-lg flex flex-col my-8">
+          <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-50 rounded-t-lg">
+            <div>
+              <h3 className="text-2xl font-bold text-slate-800 flex items-center">
+                <ShieldCheck className="w-6 h-6 mr-2 text-green-600" /> Official Result Submission
+              </h3>
+              <p className="text-sm text-slate-500 mt-1">Submit your official exam result to help improve our AI's accuracy.</p>
+            </div>
+            <button onClick={() => setShowFeedbackModal(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X className="w-6 h-6 text-slate-500" /></button>
+          </div>
+
+          <div className="p-6 md:p-8 flex-grow">
+            {feedbackState.success ? (
+              <div className="text-center py-12 space-y-4">
+                <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle className="w-10 h-10" />
+                </div>
+                <h4 className="text-2xl font-bold text-slate-800">Successfully Validated & Submitted!</h4>
+                <p className="text-slate-600">Thank you for contributing. Your official feedback ensures the community gets the best practice materials.</p>
+              </div>
+            ) : (
+              <form onSubmit={handleFeedbackSubmit} className="space-y-6">
+                
+                {feedbackState.error && (
+                  <div className="bg-red-50 text-red-700 p-4 border border-red-200 rounded-md flex items-start">
+                    <AlertTriangle className="w-5 h-5 mr-3 flex-shrink-0 mt-0.5" />
+                    <span className="text-sm font-medium">{feedbackState.error}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Exam Taken</label>
+                    <select required value={feedbackForm.exam} onChange={(e) => setFeedbackForm({...feedbackForm, exam: e.target.value})} className="w-full p-3 border border-slate-300 rounded focus:ring-2 focus:ring-pink-500 outline-none text-slate-700 bg-white">
+                      <option value="" disabled>Select Certification...</option>
+                      {Object.keys(TOPICS).map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Official Result</label>
+                    <div className="flex bg-slate-100 p-1 rounded">
+                      <button type="button" onClick={() => setFeedbackForm({...feedbackForm, status: 'pass'})} className={`flex-1 py-2 font-bold text-sm rounded transition-colors ${feedbackForm.status === 'pass' ? 'bg-green-500 text-white shadow' : 'text-slate-500 hover:text-slate-700'}`}>PASS</button>
+                      <button type="button" onClick={() => setFeedbackForm({...feedbackForm, status: 'fail'})} className={`flex-1 py-2 font-bold text-sm rounded transition-colors ${feedbackForm.status === 'fail' ? 'bg-red-500 text-white shadow' : 'text-slate-500 hover:text-slate-700'}`}>FAIL</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center">
+                    <FileText className="w-4 h-4 mr-1.5 text-slate-400" /> Paste Result Email / Evidence Text
+                  </label>
+                  <p className="text-xs text-slate-500 mb-2">Please paste the text confirming your score or status (redact personal info). Our AI will validate this to prevent spam.</p>
+                  <textarea required placeholder="Paste the text from PearsonVue or Splunk here..." value={feedbackForm.evidence} onChange={(e) => setFeedbackForm({...feedbackForm, evidence: e.target.value})} className="w-full h-32 p-3 border border-slate-300 rounded focus:ring-2 focus:ring-pink-500 outline-none text-sm text-slate-700 font-mono resize-y" />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center">
+                    <MessageSquare className="w-4 h-4 mr-1.5 text-slate-400" /> Feedback on the Mock Exam Tool
+                  </label>
+                  <p className="text-xs text-slate-500 mb-2">Was the generated mock exam accurate compared to the real thing? What topics were missing?</p>
+                  <textarea required placeholder="Share your experience..." value={feedbackForm.feedback} onChange={(e) => setFeedbackForm({...feedbackForm, feedback: e.target.value})} className="w-full h-24 p-3 border border-slate-300 rounded focus:ring-2 focus:ring-pink-500 outline-none text-sm text-slate-700 resize-y" />
+                </div>
+
+                <div className="bg-blue-50 p-4 rounded text-sm text-blue-800 flex items-start border border-blue-200">
+                  <ShieldCheck className="w-5 h-5 mr-2 flex-shrink-0 text-blue-500" />
+                  <p>Your submission will be processed and validated securely. Valid feedback is forwarded to the maintainers to enhance the AI generation prompts.</p>
+                </div>
+
+                <div className="pt-4 flex justify-end gap-4 border-t border-slate-100">
+                  <button type="button" onClick={() => setShowFeedbackModal(false)} className="px-6 py-3 font-semibold text-slate-600 hover:bg-slate-100 rounded transition-colors">Cancel</button>
+                  <button type="submit" disabled={feedbackState.loading} className="px-8 py-3 font-bold bg-pink-600 text-white rounded hover:bg-pink-700 transition-colors shadow-md flex items-center disabled:opacity-70">
+                    {feedbackState.loading ? (
+                       <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" /> Validating AI...</>
+                    ) : (
+                       <>Validate & Submit <Send className="w-4 h-4 ml-2" /></>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderMenu = () => (
+    <div className="flex flex-col items-center justify-center min-h-[75vh] px-4 space-y-8 animate-fade-in py-12">
+      <div className="text-center space-y-4">
+        <h1 className="text-4xl md:text-5xl font-extrabold text-slate-800 tracking-tight">
+          Splunk <span className="text-pink-600">Mock Exam</span> Tool
+        </h1>
+        <p className="text-slate-600 max-w-lg mx-auto text-lg">
+          Test your readiness with dynamically generated questions tailored to the official certification blueprints.
+        </p>
+      </div>
+
+      <div className="w-full max-w-6xl flex justify-between items-center mb-[-1rem]">
+        <button onClick={() => setShowFeedbackModal(true)} className="flex items-center text-sm font-bold text-indigo-600 hover:text-indigo-800 transition-colors bg-indigo-50 hover:bg-indigo-100 px-4 py-2 rounded-full shadow-sm border border-indigo-200">
+          <Award className="w-4 h-4 mr-2" /> Submit Official Exam Result
+        </button>
+        
+        <div className="bg-slate-200/70 p-1 flex space-x-1 shadow-inner rounded">
+          <button onClick={() => setViewMode('grid')} className={`p-2 transition-all rounded-sm ${viewMode === 'grid' ? 'bg-white shadow text-pink-600' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200'}`} title="Grid View">
+            <LayoutGrid className="w-5 h-5" />
+          </button>
+          <button onClick={() => setViewMode('list')} className={`p-2 transition-all rounded-sm ${viewMode === 'list' ? 'bg-white shadow text-pink-600' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200'}`} title="List View">
+            <List className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
+      <div className={`w-full max-w-6xl ${viewMode === 'grid' ? 'grid md:grid-cols-2 lg:grid-cols-3 gap-6' : 'flex flex-col space-y-4'}`}>
+        {CERT_CARDS.map((cert) => {
+          const Icon = cert.icon;
+          return (
+            <div key={cert.id} onClick={() => handleSelectExamType(cert.id)}
+              className={`bg-white p-6 shadow-md border-t-4 ${cert.theme.border} hover:shadow-xl transition-all cursor-pointer group transform hover:-translate-y-1 rounded-b-lg
+                ${viewMode === 'grid' ? 'flex flex-col' : 'flex flex-col md:flex-row md:items-center gap-4 md:gap-8'}`}
+            >
+              <div className={`flex items-center justify-between ${viewMode === 'grid' ? 'mb-4' : 'md:w-1/3 min-w-[250px]'}`}>
+                <h2 className={`text-xl font-bold text-slate-800 ${cert.theme.hoverText} transition-colors leading-tight`}>{cert.title}</h2>
+                <Icon className={`${cert.theme.text} w-8 h-8 flex-shrink-0 ml-3 ${viewMode === 'list' && 'hidden md:block'}`} />
+              </div>
+              <p className={`text-slate-500 text-sm ${viewMode === 'grid' ? 'mb-6 flex-grow' : 'flex-grow md:mb-0'}`}>{cert.desc}</p>
+              <button className={`${cert.theme.bg} ${cert.theme.text} font-semibold py-2.5 px-6 rounded ${cert.theme.hoverBg} group-hover:text-white transition-colors flex items-center justify-center 
+                ${viewMode === 'grid' ? 'w-full mt-auto' : 'w-full md:w-auto md:flex-shrink-0 whitespace-nowrap'}`}>
+                Configure Exam <Settings className="ml-2 w-4 h-4" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  const renderConfig = () => {
+    return (
+      <div className="max-w-3xl mx-auto w-full animate-fade-in bg-white shadow-xl p-6 md:p-10 border border-slate-100 rounded-lg">
+        <div className="flex items-center justify-between mb-8 border-b border-slate-100 pb-6">
+          <div>
+            <h2 className="text-3xl font-extrabold text-slate-800 flex items-center">
+              <Settings className="w-8 h-8 mr-3 text-pink-500" />
+              Exam Configuration
+            </h2>
+            <p className="text-slate-500 mt-2 font-medium">Customizing for: <span className="text-pink-600">{examType}</span></p>
+          </div>
+          <button onClick={() => setGameState('menu')} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors rounded-full"><X className="w-6 h-6" /></button>
+        </div>
+
+        <div className="space-y-8">
+          <div>
+            <h3 className="text-lg font-bold text-slate-800 mb-3 flex items-center"><ListChecks className="w-5 h-5 mr-2 text-slate-500" /> Number of Questions</h3>
+            <div className="flex flex-wrap gap-3">
+              {[5, 10, 15, 20, 25, 30].map(num => (
+                <button key={num} onClick={() => setExamConfig(prev => ({ ...prev, numQuestions: num }))}
+                  className={`px-6 py-3 font-bold transition-all rounded ${examConfig.numQuestions === num ? 'bg-slate-800 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  {num}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-bold text-slate-800 mb-3 flex items-center"><Clock className="w-5 h-5 mr-2 text-slate-500" /> Exam Timer</h3>
+            <label className="flex items-center cursor-pointer p-4 border-2 border-slate-100 hover:border-slate-300 transition-colors bg-white rounded-lg">
+              <div className="relative">
+                <input type="checkbox" className="sr-only" checked={examConfig.useTimer} onChange={(e) => setExamConfig(prev => ({ ...prev, useTimer: e.target.checked }))} />
+                <div className={`block w-14 h-8 transition-colors rounded-full ${examConfig.useTimer ? 'bg-slate-800' : 'bg-slate-300'}`}></div>
+                <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${examConfig.useTimer ? 'transform translate-x-6' : ''}`}></div>
+              </div>
+              <div className="ml-4">
+                <div className="font-bold text-slate-800">{examConfig.useTimer ? 'Timer Enabled' : 'Untimed Practice'}</div>
+                <div className="text-sm text-slate-500">{examConfig.useTimer ? `A strict countdown timer will run based on question count.` : `Take your time without any pressure.`}</div>
+              </div>
+            </label>
+          </div>
+
+          <div>
+            <div className="flex justify-between items-end mb-3">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center"><BookOpen className="w-5 h-5 mr-2 text-slate-500" /> Topic Coverage</h3>
+              <div className="flex space-x-3">
+                <button onClick={() => setExamConfig(prev => ({ ...prev, selectedTopics: TOPICS[examType] }))} className="text-sm text-pink-600 hover:text-pink-800 font-semibold">Select All</button>
+                <span className="text-slate-300">|</span>
+                <button onClick={() => setExamConfig(prev => ({ ...prev, selectedTopics: [] }))} className="text-sm text-slate-500 hover:text-slate-700 font-semibold">Clear All</button>
+              </div>
+            </div>
+            <p className="text-sm text-slate-500 mb-4">If no topics are selected, the exam will cover all topics randomly.</p>
+            <div className="grid sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto p-1 pr-2">
+              {TOPICS[examType].map((topic, idx) => {
+                const isSelected = examConfig.selectedTopics.includes(topic);
+                return (
+                  <div key={idx} onClick={() => toggleTopic(topic)}
+                    className={`p-3 border rounded cursor-pointer transition-all flex items-start space-x-3 ${isSelected ? 'bg-pink-50 border-pink-400' : 'bg-white border-slate-200 hover:border-pink-300'}`}
+                  >
+                    <div className={`mt-0.5 flex-shrink-0 w-5 h-5 border rounded flex items-center justify-center transition-colors ${isSelected ? 'bg-pink-500 border-pink-500' : 'border-slate-300'}`}>
+                      {isSelected && <CheckCircle className="w-3.5 h-3.5 text-white" />}
+                    </div>
+                    <span className={`text-sm font-medium ${isSelected ? 'text-pink-900' : 'text-slate-700'}`}>{topic}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          
+          <div className="pt-6 border-t border-slate-200">
+            <button onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center justify-between w-full text-left font-bold text-slate-700 hover:text-pink-600 transition-colors">
+              <span className="flex items-center"><Settings className="w-5 h-5 mr-2" /> Advanced Setup (Generators)</span>
+              {showAdvanced ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
+            </button>
+            
+            {showAdvanced && (
+              <div className="mt-6 bg-slate-50 p-6 border border-slate-200 rounded animate-fade-in shadow-inner space-y-6">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center uppercase tracking-wider"><Cpu className="w-4 h-4 mr-2 text-pink-500" /> AI Generator Engine</h3>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {[
+                      { id: 'llama', label: 'Meta (Llama 3.3 via Groq)' },
+                      { id: 'perplexity', label: 'Perplexity (Live Web Search)' },
+                      { id: 'gemini', label: 'Google (Gemini 1.5 Flash)' },
+                      { id: 'qwen', label: 'Alibaba (Qwen 2.5 via OpenRouter)' }
+                    ].map(provider => (
+                      <button key={provider.id} onClick={() => setExamConfig(prev => ({ ...prev, aiProvider: provider.id }))}
+                        className={`px-3 py-2 flex items-center text-sm font-semibold transition-all border rounded ${examConfig.aiProvider === provider.id ? 'bg-pink-100 border-pink-500 text-pink-700 shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                      >
+                        {provider.id === 'perplexity' && <Globe className="w-3.5 h-3.5 mr-1.5" />}
+                        {provider.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="relative animate-fade-in">
+                    <div className="flex justify-between items-end mb-2">
+                      <label className="block text-sm font-semibold text-slate-700 flex items-center">
+                        <Key className="w-4 h-4 mr-1.5" /> {examConfig.aiProvider.toUpperCase()} API Key
+                      </label>
+                      <a href={API_KEY_URLS[examConfig.aiProvider]} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center">
+                        Get API Key <ExternalLink className="w-3 h-3 ml-1" />
+                      </a>
+                    </div>
+                    <div className="flex items-center bg-white border border-slate-300 rounded focus-within:border-pink-500 focus-within:ring-1 focus-within:ring-pink-500 transition-all overflow-hidden">
+                      <span className="pl-3 text-slate-400"><Lock className="w-4 h-4" /></span>
+                      <input type="password" value={apiKeys[examConfig.aiProvider] || ''} onChange={(e) => updateApiKey(examConfig.aiProvider, e.target.value)} placeholder={`Paste your ${examConfig.aiProvider} API key here...`} className="w-full p-3 outline-none text-slate-700 bg-transparent font-mono text-sm" />
+                    </div>
+                    <p className="text-xs text-green-700 mt-2 flex items-center font-medium bg-green-50 p-2 border border-green-200 rounded">
+                      <ShieldCheck className="w-4 h-4 mr-1.5 flex-shrink-0" /> Security Note: Your key is stored securely in your browser's local storage and is never sent to our servers.
+                    </p>
+                  </div>
+                  
+                  {examConfig.aiProvider === 'perplexity' && (
+                     <div className="bg-purple-50 text-purple-800 p-3 mt-3 text-sm flex items-start border border-purple-200 rounded">
+                       <Globe className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" />
+                       <p>Perplexity AI explicitly searches the live web to combine the latest {YEAR_RANGE} official Splunk documentation to ensure maximum accuracy.</p>
+                     </div>
+                  )}
+                </div>
+
+                <div className="border-t border-slate-200 pt-6">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center uppercase tracking-wider">
+                      <Zap className="w-4 h-4 mr-2 text-pink-500" /> Agentic Prompt Engine
+                    </h3>
+                    {userEditedPrompt && (
+                      <button 
+                        onClick={() => {
+                          setUserEditedPrompt(false);
+                          setExamConfig(prev => ({...prev, customPrompt: buildAgenticPrompt(examType, prev.numQuestions, prev.selectedTopics, prev.aiProvider)}));
+                        }}
+                        className="text-xs text-pink-600 hover:text-pink-800 flex items-center font-bold transition-colors"
+                        title="Reset prompt to match current selections"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset to Dynamic Default
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mb-3">
+                    This prompt is dynamically updated based on your selections above. Feel free to edit it manually to force specific difficulty levels, tricky scenarios, or version focus (like {CURRENT_YEAR} standards).
+                  </p>
+                  <textarea 
+                    value={examConfig.customPrompt}
+                    onChange={(e) => {
+                      setUserEditedPrompt(true);
+                      setExamConfig(prev => ({...prev, customPrompt: e.target.value}));
+                    }}
+                    className={`w-full h-56 p-4 border rounded focus:border-pink-500 focus:ring-1 focus:ring-pink-500 outline-none text-sm text-slate-700 font-mono leading-relaxed resize-y shadow-inner
+                      ${userEditedPrompt ? 'bg-yellow-50/30 border-yellow-300' : 'bg-slate-100/50 border-slate-300'}`}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+          
+        </div>
+
+        <div className="mt-10 flex space-x-4">
+          <button onClick={() => setGameState('menu')} className="px-6 py-4 font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors rounded">Back</button>
+          <button onClick={handleStartExam} className="flex-1 flex items-center justify-center px-6 py-4 font-bold bg-pink-600 text-white hover:bg-pink-700 rounded transition-transform hover:-translate-y-1 shadow-lg">
+            Generate & Start Exam <ChevronRight className="w-5 h-5 ml-2" />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderLoading = () => (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-6">
+      <div className="w-16 h-16 border-4 border-pink-200 border-t-pink-600 rounded-full animate-spin"></div>
+      <h2 className="text-2xl font-semibold text-slate-700 animate-pulse">{loadingText}</h2>
+      <p className="text-slate-500 text-center max-w-md">
+        We are generating a unique set of questions for you. This ensures your practice exam is close to the real dynamically generated test format.
+      </p>
+    </div>
+  );
+
+  const renderExam = () => {
+    const q = questions[currentQuestionIndex];
+
+    if (!q) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[50vh] animate-fade-in">
+          <AlertTriangle className="w-16 h-16 text-red-500 mb-4" />
+          <h2 className="text-2xl font-bold text-slate-800">Error Loading Question</h2>
+          <p className="text-slate-600 mt-2 mb-6">The generated exam data could not be parsed properly.</p>
+          <button onClick={() => setGameState('menu')} className="px-6 py-3 font-bold bg-slate-800 text-white hover:bg-slate-900 rounded transition-colors shadow-md">
+            Return to Menu
+          </button>
+        </div>
+      );
+    }
+
+    const unansweredCount = questions.length - Object.keys(userAnswers).length;
+    const canSubmit = unansweredCount === 0;
+
+    return (
+      <div className="max-w-4xl mx-auto w-full animate-fade-in pb-20 relative">
+        {showCancelModal && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+            <div className="bg-white p-6 max-w-md w-full shadow-2xl animate-fade-in rounded-lg">
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Cancel Exam?</h3>
+              <p className="text-slate-600 mb-6">Are you sure you want to cancel? All your current progress will be lost.</p>
+              <div className="flex space-x-4">
+                <button onClick={() => setShowCancelModal(false)} className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-semibold transition-colors">Resume</button>
+                <button onClick={() => { setShowCancelModal(false); setGameState('menu'); }} className="flex-1 px-4 py-3 bg-red-500 hover:bg-red-600 text-white rounded font-semibold transition-colors">Yes, Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showGrid && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] p-4 flex flex-col items-center justify-center" onClick={() => setShowGrid(false)}>
+             <div className="bg-white p-6 max-w-2xl w-full shadow-2xl animate-fade-in rounded-lg" onClick={e => e.stopPropagation()}>
+               <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+                 <div>
+                   <h3 className="text-xl font-bold text-slate-800">Question Navigator</h3>
+                   <p className="text-sm text-slate-500">{unansweredCount} remaining</p>
+                 </div>
+                 <button onClick={() => setShowGrid(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X className="w-6 h-6 text-slate-500" /></button>
+               </div>
+               <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 gap-3 max-h-[50vh] overflow-y-auto p-1 pr-2">
+                 {questions.map((_, idx) => {
+                   const isAns = userAnswers[idx] !== undefined;
+                   const isFlagged = flaggedQuestions[idx];
+                   const isCurrent = currentQuestionIndex === idx;
+                   return (
+                     <button key={idx} onClick={() => {setCurrentQuestionIndex(idx); setShowGrid(false);}}
+                       className={`relative w-10 h-10 font-semibold flex items-center justify-center transition-all rounded
+                         ${isCurrent ? 'ring-2 ring-pink-500 ring-offset-2' : ''}
+                         ${isAns ? 'bg-pink-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}
+                       `}
+                     >
+                       {idx + 1}
+                       {isFlagged && <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-yellow-400 border-2 border-white rounded-full shadow-sm" />}
+                     </button>
+                   );
+                 })}
+               </div>
+               <div className="mt-6 flex flex-wrap gap-4 text-sm text-slate-600 justify-center bg-slate-50 p-3 rounded">
+                 <div className="flex items-center"><div className="w-3 h-3 bg-pink-600 rounded-sm mr-2" /> Answered</div>
+                 <div className="flex items-center"><div className="w-3 h-3 bg-slate-200 rounded-sm mr-2" /> Unanswered</div>
+                 <div className="flex items-center"><div className="w-3 h-3 bg-yellow-400 rounded-full mr-2" /> Flagged</div>
+               </div>
+             </div>
+          </div>
+        )}
+
+        <div className="bg-white shadow-sm border border-slate-100 p-4 rounded-lg mb-6 flex flex-col md:flex-row items-center justify-between sticky top-4 z-10 gap-4">
+          <div className="flex items-center space-x-2 w-full md:w-auto">
+            <button onClick={() => setShowCancelModal(true)} className="p-2 text-slate-400 hover:text-red-500 rounded-full hover:bg-red-50 transition-colors" title="Cancel Exam"><X className="w-6 h-6" /></button>
+            <div className="h-6 w-px bg-slate-200 mx-2"></div>
+            <button onClick={() => setShowGrid(true)} className="flex items-center px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded font-medium transition-colors border border-slate-200">
+              <LayoutGrid className="w-5 h-5 mr-2 text-slate-500" /><span className="hidden sm:inline">Navigator</span>
+            </button>
+          </div>
+
+          <div className="flex items-center space-x-3 text-center">
+            <span className="bg-pink-100 text-pink-700 font-bold px-4 py-2 rounded-full">Question {currentQuestionIndex + 1} of {questions.length}</span>
+          </div>
+
+          <div className={`flex items-center space-x-2 font-mono text-xl font-bold px-4 py-2 rounded-lg w-full md:w-auto justify-center
+            ${!examConfig.useTimer ? 'bg-slate-50 text-slate-500' : timeRemaining < 300 ? 'bg-red-50 text-red-600 animate-pulse' : 'bg-slate-50 text-slate-700'}`}>
+            {examConfig.useTimer ? (
+              <><Clock className="w-5 h-5" /><span>{formatTime(timeRemaining)}</span></>
+            ) : (
+              <><Infinity className="w-6 h-6" /><span className="text-sm uppercase tracking-wider font-sans ml-1">Untimed</span></>
+            )}
+          </div>
+        </div>
+
+        <div className="w-full bg-slate-200 h-2 rounded-full mb-6 overflow-hidden">
+          <div className="bg-pink-500 h-full transition-all duration-300 ease-out" style={{ width: `${(Object.keys(userAnswers).length / questions.length) * 100}%` }}></div>
+        </div>
+
+        <div className="bg-white shadow-md border border-slate-200 rounded-lg overflow-hidden">
+          <div className="p-6 md:p-8 border-b border-slate-100 flex justify-between items-start gap-4">
+            <h2 className="text-xl md:text-2xl font-semibold text-slate-800 leading-relaxed">{q.question}</h2>
+            <button onClick={() => setFlaggedQuestions(prev => ({ ...prev, [currentQuestionIndex]: !prev[currentQuestionIndex] }))}
+              className={`flex-shrink-0 flex items-center px-3 py-2 text-sm rounded-md font-medium transition-colors border ${flaggedQuestions[currentQuestionIndex] ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`} title="Flag for review"
+            >
+              <Flag className="w-4 h-4 mr-1.5" fill={flaggedQuestions[currentQuestionIndex] ? "currentColor" : "none"} />
+              <span className="hidden sm:inline">{flaggedQuestions[currentQuestionIndex] ? 'Flagged' : 'Flag'}</span>
+            </button>
+          </div>
+          <div className="p-6 md:p-8 bg-slate-50 space-y-3">
+            {q.options && q.options.map((option, idx) => {
+              const selected = userAnswers[currentQuestionIndex] === idx;
+              return (
+                <div key={idx} onClick={() => handleAnswerSelect(idx)}
+                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 flex items-start space-x-3 ${selected ? 'border-pink-500 bg-pink-50 shadow-sm' : 'border-slate-200 bg-white hover:border-pink-300 hover:bg-pink-50/50'}`}
+                >
+                  <div className={`mt-1 flex-shrink-0 w-5 h-5 border-2 rounded-full flex items-center justify-center ${selected ? 'border-pink-600' : 'border-slate-300'}`}>
+                    {selected && <div className="w-2.5 h-2.5 bg-pink-600 rounded-full" />}
+                  </div>
+                  <span className={`text-lg ${selected ? 'text-pink-900 font-medium' : 'text-slate-700'}`}>{option}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between mt-8 relative">
+          <button onClick={prevQuestion} disabled={currentQuestionIndex === 0}
+            className={`flex items-center px-6 py-3 rounded font-semibold transition-colors ${currentQuestionIndex === 0 ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 shadow-sm'}`}
+          >
+            <ChevronLeft className="w-5 h-5 mr-2" /> <span className="hidden sm:inline">Previous</span>
+          </button>
+
+          {currentQuestionIndex === questions.length - 1 ? (
+            <div className="relative flex flex-col items-end">
+              {!canSubmit && (
+                 <div className="absolute -top-8 right-0 text-orange-500 text-sm font-semibold flex items-center bg-orange-50 px-3 py-1 rounded border border-orange-200 whitespace-nowrap">
+                    <AlertCircle className="w-4 h-4 mr-1.5" />
+                    {unansweredCount} question{unansweredCount > 1 ? 's' : ''} remaining
+                 </div>
+              )}
+              <button onClick={finishExam} disabled={!canSubmit}
+                className={`flex items-center px-8 py-3 rounded font-bold shadow-md transition-all ${canSubmit ? 'bg-pink-600 text-white hover:bg-pink-700 hover:scale-105' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
+              >
+                Submit Exam <CheckCircle className="w-5 h-5 ml-2" />
+              </button>
+            </div>
+          ) : (
+            <button onClick={nextQuestion} className="flex items-center px-8 py-3 rounded font-bold bg-slate-800 text-white hover:bg-slate-900 shadow-md transition-transform hover:scale-105">
+              <span className="hidden sm:inline">Next</span> <ChevronRight className="w-5 h-5 ml-2" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderResults = () => {
+    if (!resultsData) return null;
+    const { score, passed, correct, total, topicsToReview } = resultsData;
+
+    return (
+      <div className="max-w-4xl mx-auto w-full animate-fade-in space-y-8 pb-12">
+        <div className={`p-8 md:p-12 text-center text-white rounded-2xl shadow-xl relative overflow-hidden ${passed ? 'bg-gradient-to-br from-green-500 to-emerald-700' : 'bg-gradient-to-br from-red-500 to-pink-700'}`}>
+          <div className="absolute top-0 right-0 -mt-10 -mr-10 opacity-20">
+            {passed ? <CheckCircle className="w-64 h-64" /> : <XCircle className="w-64 h-64" />}
+          </div>
+          
+          <div className="relative z-10 space-y-4">
+            <h1 className="text-4xl md:text-5xl font-extrabold mb-2">{passed ? "Congratulations, You Passed!" : "Exam Failed"}</h1>
+            <p className="text-xl md:text-2xl font-medium opacity-90">{examType} Mock Exam</p>
+            <div className="inline-block bg-white/20 px-8 py-4 rounded-xl backdrop-blur-sm mt-6">
+              <div className="text-5xl font-black">{score}%</div>
+              <div className="text-sm font-medium uppercase tracking-wider mt-1 opacity-80">Final Score</div>
+            </div>
+            <p className="text-lg opacity-90 mt-4">You answered {correct} out of {total} questions correctly.</p>
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-8">
+          <div className="bg-white rounded-xl shadow-md p-6 border border-slate-100 flex flex-col">
+            <h3 className="text-xl font-bold text-slate-800 flex items-center mb-6"><BookOpen className="w-6 h-6 mr-2 text-pink-500" />Topics to Review</h3>
+            {topicsToReview.length === 0 ? (
+              <div className="text-center py-8 text-slate-500 bg-slate-50 rounded-lg h-full flex flex-col justify-center">
+                <CheckCircle className="w-12 h-12 mx-auto text-green-400 mb-3" />
+                <p>Perfect! You didn't miss any topics.</p>
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 flex-grow">
+                {topicsToReview.map((item, idx) => (
+                  <div key={idx} className="bg-red-50 border border-red-100 rounded-lg p-4 flex justify-between items-start sm:items-center flex-col sm:flex-row gap-3">
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-slate-700">{item.topic}</span>
+                      <a href={TOPIC_LINKS[item.topic] || `https://docs.splunk.com/Documentation/Splunk/latest/Search?q=${encodeURIComponent(item.topic)}`} target="_blank" rel="noopener noreferrer" className="text-pink-600 hover:text-pink-800 text-sm mt-1.5 flex items-center font-medium transition-colors">
+                        Review Documentation <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
+                      </a>
+                    </div>
+                    <span className="bg-red-200 text-red-800 text-xs rounded-full font-bold px-3 py-1.5 whitespace-nowrap self-start sm:self-auto">{item.errors} error{item.errors > 1 ? 's' : ''}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-8 flex flex-col">
+            <div className="bg-white rounded-xl shadow-md p-6 border border-slate-100 flex flex-col items-center text-center">
+              <h4 className="font-bold text-slate-800 mb-2">Help Validate Our AI</h4>
+              <p className="text-slate-500 text-sm mb-6">Have you recently taken the official {examType} exam? Submit your official score report text to help us improve this generator.</p>
+              <button onClick={() => setShowFeedbackModal(true)} className="w-full flex items-center justify-center px-6 py-4 rounded-lg font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors border border-indigo-200">
+                <Award className="w-5 h-5 mr-2" /> Submit Official Result
+              </button>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-md p-6 border border-slate-100 flex flex-col justify-center items-center text-center space-y-6 flex-grow">
+              <div className="bg-slate-50 rounded-lg w-full p-6">
+                <AlertTriangle className="w-12 h-12 mx-auto text-orange-400 mb-4" />
+                <h4 className="font-bold text-slate-800 mb-2">Next Steps</h4>
+                <p className="text-slate-600 text-sm">Focus your studies on the topics highlighted in the review section. Real exams require precise knowledge of UI locations and exact syntax.</p>
+              </div>
+              <button onClick={() => setGameState('menu')} className="w-full flex items-center justify-center px-6 py-4 rounded-lg font-bold bg-slate-800 text-white hover:bg-slate-900 transition-colors">
+                <RotateCcw className="w-5 h-5 mr-2" /> Take Another Mock Exam
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderFooter = () => {
+    if (gameState !== 'menu' && gameState !== 'results') return null;
+    return (
+      <footer className="max-w-6xl mx-auto px-4 py-12 mt-12 border-t border-slate-200 animate-fade-in">
+        <div className="text-center mb-8">
+          <h3 className="text-xl font-bold text-slate-800">How to use this tool</h3>
+          <p className="text-slate-500 mt-2">Follow these steps to generate and take your practice exam.</p>
+        </div>
+        <div className="grid md:grid-cols-4 gap-6 text-sm text-slate-600">
+          <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">
+            <div className="w-8 h-8 bg-pink-100 text-pink-600 font-bold flex items-center justify-center rounded-full mb-3">1</div>
+            <h4 className="font-bold text-slate-800 mb-1">Select Certification</h4>
+            <p>Choose the Splunk certification track you are currently studying for.</p>
+          </div>
+          <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">
+            <div className="w-8 h-8 bg-pink-100 text-pink-600 font-bold flex items-center justify-center rounded-full mb-3">2</div>
+            <h4 className="font-bold text-slate-800 mb-1">Configure Generation</h4>
+            <p>Select specific topics to focus on, question counts, and API generator settings.</p>
+          </div>
+          <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">
+            <div className="w-8 h-8 bg-pink-100 text-pink-600 font-bold flex items-center justify-center rounded-full mb-3">3</div>
+            <h4 className="font-bold text-slate-800 mb-1">Take the Exam</h4>
+            <p>Complete the dynamically generated mock exam in a timed or untimed environment.</p>
+          </div>
+          <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-100">
+            <div className="w-8 h-8 bg-pink-100 text-pink-600 font-bold flex items-center justify-center rounded-full mb-3">4</div>
+            <h4 className="font-bold text-slate-800 mb-1">Review Weaknesses</h4>
+            <p>View your final score and get direct links to official Splunk docs for missed topics.</p>
+          </div>
+        </div>
+        <div className="mt-12 text-center text-xs text-slate-400">
+          <p>This is a community-driven project and is not officially affiliated with or endorsed by Splunk Inc.</p>
+        </div>
+      </footer>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-pink-200 selection:text-pink-900 flex flex-col">
+      {renderConsentModal()}
+      {renderFeedbackModal()}
+
+      <nav className="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-50">
+        <div className="max-w-6xl mx-auto flex items-center font-bold text-xl">
+          <span className="text-pink-500 mr-1">&gt;</span> Splunk <span className="font-light ml-1 text-slate-300">MockTest</span>
+        </div>
+      </nav>
+
+      <main className="flex-grow max-w-6xl mx-auto w-full px-4 py-8 md:py-12">
+        {gameState === 'menu' && renderMenu()}
+        {gameState === 'config' && renderConfig()}
+        {gameState === 'loading' && renderLoading()}
+        {gameState === 'exam' && renderExam()}
+        {gameState === 'results' && renderResults()}
+
+        {apiError && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+            <div className="bg-white p-6 md:p-8 max-w-lg w-full shadow-2xl rounded-xl animate-fade-in border-t-4 border-red-500">
+              <div className="flex items-center mb-4 text-red-600">
+                <AlertTriangle className="w-8 h-8 mr-3 flex-shrink-0" />
+                <h3 className="text-xl font-bold">API Connection Issue</h3>
+              </div>
+              <p className="text-slate-600 mb-8 whitespace-pre-wrap leading-relaxed">
+                {typeof apiError === 'string' ? apiError : JSON.stringify(apiError)}
+              </p>
+              <button onClick={() => setApiError(null)} className="w-full px-6 py-3 bg-slate-800 hover:bg-slate-900 rounded-lg text-white font-bold transition-colors shadow-md">
+                Acknowledge
+              </button>
+            </div>
+          </div>
+        )}
+      </main>
+      
+      {renderFooter()}
+    </div>
+  );
+}

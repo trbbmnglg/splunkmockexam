@@ -1,0 +1,176 @@
+# .github/workflows/reset-vectorize.yml
+#
+# Deletes the splunk-docs-index Vectorize index and optionally re-creates it
+# empty, ready for a fresh ingest run.
+#
+# Trigger: Manual only (workflow_dispatch)
+# Go to: GitHub repo → Actions → "Layer 2: Reset Vectorize Index" → Run workflow
+#
+# Required GitHub Secrets (Settings → Secrets and variables → Actions):
+#   CF_API_TOKEN   — Cloudflare API token with Vectorize Edit permission
+#   CF_ACCOUNT_ID  — Your Cloudflare account ID
+
+name: "Layer 2: Reset Vectorize Index"
+
+on:
+  workflow_dispatch:
+    inputs:
+      recreate:
+        description: "Recreate the empty index after deleting (yes = delete + recreate, no = delete only)"
+        required: false
+        default: "yes"
+        type: choice
+        options:
+          - "yes"
+          - "no"
+      confirm:
+        description: "Type DELETE to confirm — this permanently removes all ingested vectors"
+        required: true
+        default: ""
+        type: string
+
+jobs:
+  reset:
+    name: Delete (and optionally recreate) splunk-docs-index
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Confirm intent
+        run: |
+          if [ "${{ inputs.confirm }}" != "DELETE" ]; then
+            echo "ERROR: You must type DELETE in the confirm field to proceed."
+            echo "Got: '${{ inputs.confirm }}'"
+            exit 1
+          fi
+          echo "✓ Confirmation accepted — proceeding with index reset"
+
+      - name: Verify Cloudflare credentials
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          echo "Verifying Cloudflare API token..."
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/user/tokens/verify")
+          if [ "$RESPONSE" != "200" ]; then
+            echo "ERROR: CF_API_TOKEN is invalid or expired (HTTP $RESPONSE)"
+            exit 1
+          fi
+          echo "✓ CF_API_TOKEN is valid"
+
+      - name: Check if index exists
+        id: check
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          echo "Checking if splunk-docs-index exists..."
+          RESPONSE=$(curl -s \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/vectorize/v2/indexes/splunk-docs-index")
+
+          if echo "$RESPONSE" | grep -E -q '"success":\s*true'; then
+            echo "✓ Index exists — will delete it"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Index does not exist (nothing to delete)"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Delete index
+        if: steps.check.outputs.exists == 'true'
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          echo "Deleting splunk-docs-index..."
+          DELETE_RESPONSE=$(curl -s -X DELETE \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/vectorize/v2/indexes/splunk-docs-index")
+
+          echo "Response: $DELETE_RESPONSE"
+
+          if echo "$DELETE_RESPONSE" | grep -E -q '"success":\s*true'; then
+            echo "✓ Index deleted successfully"
+          else
+            echo "ERROR: Failed to delete index"
+            echo "$DELETE_RESPONSE"
+            exit 1
+          fi
+
+          echo "Waiting 5s for deletion to propagate..."
+          sleep 5
+
+      - name: Recreate empty index
+        if: inputs.recreate == 'yes'
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          echo "Recreating splunk-docs-index (384 dimensions, cosine metric)..."
+          CREATE_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data '{"name":"splunk-docs-index","config":{"dimensions":384,"metric":"cosine"}}' \
+            "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/vectorize/v2/indexes")
+
+          echo "Response: $CREATE_RESPONSE"
+
+          if echo "$CREATE_RESPONSE" | grep -E -q '"success":\s*true'; then
+            echo "✓ Empty index recreated successfully"
+            echo "Waiting 10s for index to become available..."
+            sleep 10
+          elif echo "$CREATE_RESPONSE" | grep -q 'duplicate_name'; then
+            echo "✓ Index already exists (was not deleted or recreated very fast)"
+          else
+            echo "ERROR: Failed to recreate index"
+            echo "$CREATE_RESPONSE"
+            exit 1
+          fi
+
+      - name: Verify final state
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          echo "Checking final index state..."
+          RESPONSE=$(curl -s \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/vectorize/v2/indexes/splunk-docs-index")
+
+          if echo "$RESPONSE" | grep -E -q '"success":\s*true'; then
+            echo "✓ Index is present and healthy"
+            echo "$RESPONSE" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          if data.get('success'):
+              idx = data['result']
+              print(f'  Name:       {idx.get(\"name\")}')
+              print(f'  Dimensions: {idx.get(\"config\", {}).get(\"dimensions\")}')
+              print(f'  Metric:     {idx.get(\"config\", {}).get(\"metric\")}')
+            " 2>/dev/null || true
+          else
+            if [ "${{ inputs.recreate }}" = "no" ]; then
+              echo "✓ Index is gone (delete-only mode)"
+            else
+              echo "WARNING: Index not found after recreate — may need a moment to propagate"
+            fi
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo ""
+          echo "=== Reset Summary ==="
+          echo "Index:    splunk-docs-index"
+          echo "Deleted:  ${{ steps.check.outputs.exists == 'true' && 'yes' || 'was already gone' }}"
+          echo "Recreate: ${{ inputs.recreate }}"
+          echo ""
+          echo "Next step: run the ingest workflow"
+          echo "  Go to: Actions → 'Layer 2: Setup Vectorize & Ingest Docs'"
+          echo "  Settings:"
+          echo "    dry_run:        false"
+          echo "    cert_filter:    (leave blank — all 9 certs)"
+          echo "    force_reingest: true"

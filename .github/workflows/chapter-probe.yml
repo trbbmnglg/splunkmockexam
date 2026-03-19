@@ -1,0 +1,24 @@
+# .github/workflows/chapter-probe.yml
+name: "Layer 2: Chapter Probe"
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - run: bun install
+      - run: bun scripts/chapter-probe.js 2>&1 | tee /tmp/chapter-probe-report.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chapter-patches
+          path: /tmp/chapter-patches.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chapter-probe-report
+          path: /tmp/chapter-probe-report.txt

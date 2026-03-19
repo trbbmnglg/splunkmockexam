@@ -10,15 +10,6 @@ export const DEFAULT_GROQ_KEY    = getEnvVar('VITE_GROQ_TOKEN', '');
 export const CF_WEBHOOK_URL      = getEnvVar('VITE_CF_WEBHOOK_URL', '');
 export const CF_WEBHOOK_TOKEN    = getEnvVar('VITE_CF_WEBHOOK_TOKEN', '');
 
-// ─── JSON Schema for a single question ───────────────────────────────────────
-// Passed to providers that support response_format / structured outputs.
-// Enforces: question string, exactly 4 options, answer matches one option,
-// topic string, docSource string.
-//
-// NOTE: JSON Schema mode guarantees the *structure* of the output — the model
-// still picks the values. Rule 1 of agentValidator (answer-option mismatch)
-// becomes extremely rare once this is active, because the model cannot emit
-// an answer that isn't one of the four option strings it already wrote.
 export const QUESTION_SCHEMA = {
   type: 'object',
   properties: {
@@ -47,23 +38,6 @@ export const QUESTION_SCHEMA = {
   additionalProperties: false,
 };
 
-// ─── Agent trace collector ────────────────────────────────────────────────────
-// Lightweight in-memory trace for the current generation call.
-// Returned alongside questions so App.jsx can log it, display it, or forward
-// it to the D1 agent_traces table once that endpoint exists.
-//
-// Shape:
-//   {
-//     provider:          string   — 'llama' | 'perplexity' | 'gemini' | 'qwen'
-//     model:             string   — exact model string used
-//     promptTokens:      number   — from usage object if available, else 0
-//     completionTokens:  number   — from usage object if available, else 0
-//     latencyMs:         number   — wall-clock time for the LLM call
-//     schemaEnforced:    boolean  — true if response_format was used
-//     parseStrategy:     string   — 'schema' | 'json_object' | 'regex_fallback'
-//     retries:           number   — how many 429-retries were needed
-//     error:             string?  — present only on failure
-//   }
 export const createTrace = (provider, model) => ({
   provider,
   model,
@@ -76,8 +50,6 @@ export const createTrace = (provider, model) => ({
   error:            null,
 });
 
-// ─── fetchWithRetry — handles 429 with retry-after header ────────────────────
-// Instruments retries into a trace object when provided.
 export const fetchWithRetry = async (url, options, maxRetries = 5, timeoutMs = 30000, trace = null) => {
   const baseDelays = [1000, 2000, 4000, 8000, 16000];
   for (let i = 0; i < maxRetries; i++) {
@@ -110,41 +82,51 @@ export const fetchWithRetry = async (url, options, maxRetries = 5, timeoutMs = 3
 };
 
 // ─── validateAnswerOptions ────────────────────────────────────────────────────
-// Post-parse guard. Even with schema enforcement the model can occasionally
-// emit an answer that is a substring or near-match of an option rather than
-// an exact match. This normalises whitespace and does a case-insensitive
-// fallback before giving up, so one formatting quirk doesn't waste a question.
 const validateAnswerOptions = (questions) => {
   return questions.map(q => {
     if (!Array.isArray(q.options) || q.options.length !== 4) return q;
-
-    // Exact match — all good
     if (q.options.includes(q.answer)) return q;
-
-    // Case-insensitive / whitespace-normalised match
     const normalise = s => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
     const normAnswer = normalise(q.answer);
     const matchedOption = q.options.find(o => normalise(o) === normAnswer);
-
-    if (matchedOption) {
-      // Correct the answer to the exact option string
-      return { ...q, answer: matchedOption };
-    }
-
-    // No match found — flag for validator to catch
+    if (matchedOption) return { ...q, answer: matchedOption };
     console.warn(`[API] Answer-option mismatch after schema parse: "${q.answer}" not in options`);
     return q;
   });
 };
 
-// ─── parseQuestionsFromResponse ───────────────────────────────────────────────
-// Three strategies, tried in order:
-//   1. schema    — response was already parsed by the provider's structured output
-//   2. json_obj  — model returned a JSON object; extract the 'questions' array
-//   3. regex     — strip markdown fences and find the JSON array manually
-const parseQuestionsFromResponse = (text, trace) => {
+// ─── filterDocSources ─────────────────────────────────────────────────────────
+// Strips any docSource URL that wasn't actually in the injected passages.
+// Prevents the model from hallucinating plausible-looking but fake Splunk URLs.
+// If passages is empty (no RAG), all docSources are cleared — we can't verify them.
+const filterDocSources = (questions, passages) => {
+  if (!passages || passages.length === 0) {
+    // No passages were injected — any docSource is unverifiable, clear them all
+    return questions.map(q => ({ ...q, docSource: '' }));
+  }
 
-  // Strategy 1: already an object (Gemini, schema-enforced responses)
+  // Build a Set of the exact URLs that were injected into the prompt
+  const validUrls = new Set(passages.map(p => p.url).filter(Boolean));
+
+  return questions.map(q => {
+    const src = q.docSource || '';
+    if (!src) return q;
+
+    if (validUrls.has(src)) return q;  // exact match — keep it
+
+    // Partial match: model may have used the right domain/path but with minor differences
+    // Accept if the docSource starts with one of the valid URLs (handles trailing slashes etc.)
+    const looseMatch = [...validUrls].some(u => src.startsWith(u) || u.startsWith(src));
+    if (looseMatch) return q;
+
+    // No match — model hallucinated this URL, clear it
+    console.info(`[API] docSource filtered (not in injected passages): "${src}"`);
+    return { ...q, docSource: '' };
+  });
+};
+
+// ─── parseQuestionsFromResponse ───────────────────────────────────────────────
+const parseQuestionsFromResponse = (text, trace) => {
   if (typeof text === 'object' && text !== null) {
     const arr = text.questions ?? (Array.isArray(text) ? text : null);
     if (arr) {
@@ -153,7 +135,6 @@ const parseQuestionsFromResponse = (text, trace) => {
     }
   }
 
-  // Strategy 2: JSON object wrapper  { "questions": [...] }
   try {
     const cleaned = (text || '').replace(/```json|```/gi, '').trim();
     const parsed  = JSON.parse(cleaned);
@@ -167,7 +148,6 @@ const parseQuestionsFromResponse = (text, trace) => {
     }
   } catch (_) { /* fall through */ }
 
-  // Strategy 3: find the array by bracket positions
   const str = typeof text === 'string' ? text : JSON.stringify(text || '');
   const cleaned = str.replace(/```json|```/gi, '').trim();
   const start   = cleaned.indexOf('[');
@@ -213,10 +193,8 @@ OUTPUT REQUIREMENT: Output ONLY valid JSON, no markdown.
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveKey}` },
       body: JSON.stringify({
-        model:       "llama-3.3-70b-versatile",
-        max_tokens:  256,
-        // Use json_object mode for the validation call too — it's a single object,
-        // simpler than the full schema but still removes markdown fence risk.
+        model:           "llama-3.3-70b-versatile",
+        max_tokens:      256,
         response_format: { type: 'json_object' },
         messages: [
           { role: "system", content: "You output valid JSON ONLY." },
@@ -275,21 +253,8 @@ export const getFallbackQuestions = (examType, targetCount) => {
 };
 
 // ─── generateDynamicQuestions ─────────────────────────────────────────────────
-//
-// Returns: { questions, error, trace }
-//   trace — the AgentTrace object for this call (log to D1 or console as needed)
-//
-// Schema enforcement strategy per provider:
-//   Groq (llama)   — response_format: { type: 'json_object' }  (stable, widely supported)
-//                    Groq does NOT yet support full JSON Schema mode in the API,
-//                    but json_object mode still eliminates markdown fences and
-//                    guarantees a parseable JSON response.
-//   Gemini         — responseMimeType: "application/json"  (already set; no change needed)
-//   Perplexity     — no structured output support; falls back to regex parse
-//   Qwen/OpenRouter — response_format: { type: 'json_object' } (supported on most models)
-//
-// The prompt wraps the array in a top-level { "questions": [...] } object because
-// json_object mode requires an object at the root, not a bare array.
+// config.passages — the RAG passages array passed from App.jsx — used to
+// validate docSource URLs after generation. Pass [] if no RAG was used.
 export const generateDynamicQuestions = async (examType, config, apiKey) => {
   const provider    = config.aiProvider;
   const effectiveKey = provider === 'llama' ? (apiKey || DEFAULT_GROQ_KEY) : apiKey;
@@ -302,7 +267,6 @@ export const generateDynamicQuestions = async (examType, config, apiKey) => {
     };
   }
 
-  // Determine the exact model string so we can record it in the trace
   const MODEL_STRINGS = {
     llama:      'llama-3.3-70b-versatile',
     perplexity: 'sonar-pro',
@@ -312,12 +276,8 @@ export const generateDynamicQuestions = async (examType, config, apiKey) => {
   const modelString = MODEL_STRINGS[provider] || provider;
   const trace = createTrace(provider, modelString);
 
-  // Scale max_tokens to question count — each question ~500 tokens, 30% buffer
   const outputTokens = Math.max(4096, Math.ceil(config.numQuestions * 500 * 1.3));
 
-  // ── Prompt ──────────────────────────────────────────────────────────────────
-  // Wrap in { "questions": [...] } object so json_object mode is satisfied.
-  // The schema section at the bottom instructs the model on the exact shape.
   const promptText = `${config.customPrompt}
 
 OUTPUT FORMAT — return ONLY a raw JSON object with a single key "questions" whose value is an array.
@@ -340,11 +300,10 @@ CRITICAL: The "answer" value must be byte-for-byte identical to one of the four 
 Do not paraphrase, abbreviate, or reword the answer — copy it exactly.`;
 
   try {
-    let rawData     = null;
+    let rawData      = null;
     let responseText = null;
-    const t0        = Date.now();
+    const t0         = Date.now();
 
-    // ── Groq / Llama ──────────────────────────────────────────────────────────
     if (provider === 'llama') {
       rawData = await fetchWithRetry(
         'https://api.groq.com/openai/v1/chat/completions',
@@ -354,30 +313,23 @@ Do not paraphrase, abbreviate, or reword the answer — copy it exactly.`;
           body: JSON.stringify({
             model:           modelString,
             max_tokens:      outputTokens,
-            // json_object mode: guarantees valid JSON object, no fences, no preamble
             response_format: { type: 'json_object' },
             messages: [
-              {
-                role:    'system',
-                content: 'You are a Splunk certification exam author. Return only valid JSON — a single object with a "questions" array. No markdown, no extra text.'
-              },
-              { role: 'user', content: promptText }
+              { role: 'system', content: 'You are a Splunk certification exam author. Return only valid JSON — a single object with a "questions" array. No markdown, no extra text.' },
+              { role: 'user',   content: promptText }
             ],
           })
         },
         5, 30000, trace
       );
       trace.schemaEnforced = true;
-      // Groq returns usage when the call succeeds
       if (rawData?.usage) {
         trace.promptTokens     = rawData.usage.prompt_tokens     ?? 0;
         trace.completionTokens = rawData.usage.completion_tokens ?? 0;
       }
       responseText = rawData?.choices?.[0]?.message?.content;
 
-    // ── Perplexity ────────────────────────────────────────────────────────────
     } else if (provider === 'perplexity') {
-      // Perplexity's sonar models do not support response_format — use prompt-only guidance
       rawData = await fetchWithRetry(
         'https://api.perplexity.ai/chat/completions',
         {
@@ -387,11 +339,8 @@ Do not paraphrase, abbreviate, or reword the answer — copy it exactly.`;
             model:      modelString,
             max_tokens: outputTokens,
             messages: [
-              {
-                role:    'system',
-                content: 'You are a Splunk certification exam author. Follow the user instructions precisely and return only valid JSON.'
-              },
-              { role: 'user', content: promptText }
+              { role: 'system', content: 'You are a Splunk certification exam author. Follow the user instructions precisely and return only valid JSON.' },
+              { role: 'user',   content: promptText }
             ],
           })
         },
@@ -399,7 +348,6 @@ Do not paraphrase, abbreviate, or reword the answer — copy it exactly.`;
       );
       responseText = rawData?.choices?.[0]?.message?.content;
 
-    // ── Qwen via OpenRouter ───────────────────────────────────────────────────
     } else if (provider === 'qwen') {
       rawData = await fetchWithRetry(
         'https://openrouter.ai/api/v1/chat/completions',
@@ -416,11 +364,8 @@ Do not paraphrase, abbreviate, or reword the answer — copy it exactly.`;
             max_tokens:      outputTokens,
             response_format: { type: 'json_object' },
             messages: [
-              {
-                role:    'system',
-                content: 'You are a Splunk certification exam author. Return only valid JSON — a single object with a "questions" array. No markdown, no extra text.'
-              },
-              { role: 'user', content: promptText }
+              { role: 'system', content: 'You are a Splunk certification exam author. Return only valid JSON — a single object with a "questions" array. No markdown, no extra text.' },
+              { role: 'user',   content: promptText }
             ],
           })
         },
@@ -433,7 +378,6 @@ Do not paraphrase, abbreviate, or reword the answer — copy it exactly.`;
       }
       responseText = rawData?.choices?.[0]?.message?.content;
 
-    // ── Gemini ────────────────────────────────────────────────────────────────
     } else if (provider === 'gemini') {
       rawData = await fetchWithRetry(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${effectiveKey}`,
@@ -442,29 +386,22 @@ Do not paraphrase, abbreviate, or reword the answer — copy it exactly.`;
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: promptText }] }],
-            generationConfig: {
-              responseMimeType: 'application/json',
-              maxOutputTokens:  outputTokens,
-            },
+            generationConfig: { responseMimeType: 'application/json', maxOutputTokens: outputTokens },
           })
         },
         5, 30000, trace
       );
       trace.schemaEnforced = true;
-      // Gemini returns usageMetadata
       if (rawData?.usageMetadata) {
         trace.promptTokens     = rawData.usageMetadata.promptTokenCount     ?? 0;
         trace.completionTokens = rawData.usageMetadata.candidatesTokenCount ?? 0;
       }
-      // Gemini may return the JSON directly as an object in some SDK versions,
-      // or as a string — handle both
       const part = rawData?.candidates?.[0]?.content?.parts?.[0];
       responseText = part?.text ?? part ?? null;
     }
 
     trace.latencyMs = Date.now() - t0;
 
-    // ── Parse ─────────────────────────────────────────────────────────────────
     if (!responseText) throw new Error("No content returned from provider");
 
     const parsed = parseQuestionsFromResponse(responseText, trace);
@@ -473,18 +410,29 @@ Do not paraphrase, abbreviate, or reword the answer — copy it exactly.`;
       throw new Error("Provider returned valid JSON but no questions array was found.");
     }
 
-    // Post-parse: normalise answer strings, report to console
-    const validated = validateAnswerOptions(parsed);
+    // Step 1: normalise answer strings
+    const answerValidated = validateAnswerOptions(parsed);
+
+    // Step 2: strip hallucinated docSource URLs — only keep URLs that were
+    // actually in the injected RAG passages. config.passages is the same
+    // array that was used to build the prompt in App.jsx.
+    const docSourceFiltered = filterDocSources(answerValidated, config.passages || []);
+
+    // Count how many were filtered for the trace log
+    const filteredCount = answerValidated.filter((q, i) =>
+      q.docSource && !docSourceFiltered[i].docSource
+    ).length;
 
     console.info(
-      `[API] ${provider} — ${validated.length}q | ` +
+      `[API] ${provider} — ${docSourceFiltered.length}q | ` +
       `${trace.promptTokens}+${trace.completionTokens} tokens | ` +
       `${trace.latencyMs}ms | parse: ${trace.parseStrategy} | ` +
-      `schema: ${trace.schemaEnforced} | retries: ${trace.retries}`
+      `schema: ${trace.schemaEnforced} | retries: ${trace.retries}` +
+      (filteredCount > 0 ? ` | docSource filtered: ${filteredCount}` : '')
     );
 
     return {
-      questions: validated.slice(0, config.numQuestions),
+      questions: docSourceFiltered.slice(0, config.numQuestions),
       error:     null,
       trace,
     };

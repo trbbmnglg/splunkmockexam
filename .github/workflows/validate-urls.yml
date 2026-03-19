@@ -1,0 +1,49 @@
+# .github/workflows/validate-urls.yml
+#
+# Validates every URL in scripts/splunk-urls.js and outputs:
+#   - A console report grouped by cert (✓ alive / ✗ dead)
+#   - An artifact containing a fixed splunk-urls.js with dead URLs replaced
+#
+# Trigger: Manual only (workflow_dispatch)
+# Go to: GitHub repo → Actions → "Layer 2: Validate & Fix Doc URLs" → Run workflow
+#
+# No secrets required — only makes outbound HTTP requests to public Splunk docs.
+
+name: "Layer 2: Validate & Fix Doc URLs"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Check all Splunk doc URLs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install cheerio (needed by splunk-urls.js import chain)
+        run: bun add cheerio
+
+      - name: Run URL validator
+        run: bun scripts/validate-urls.js 2>&1 | tee /tmp/validation-report.txt
+
+      - name: Upload fixed splunk-urls.js as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixed-splunk-urls
+          path: /tmp/splunk-urls-fixed.js
+          if-no-files-found: warn
+
+      - name: Upload full report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: url-validation-report
+          path: /tmp/validation-report.txt

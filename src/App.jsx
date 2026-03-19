@@ -589,7 +589,9 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
 
     setLoadingText(`Generating ${examConfig.numQuestions} dynamic questions using ${examConfig.aiProvider.toUpperCase()}...`);
 
-    const { questions: fetchedQuestions, error } = await generateDynamicQuestions(examType, enrichedConfig, currentKey);
+    // ── CHANGED: destructure trace from result ─────────────────────────────
+    const { questions: fetchedQuestions, error, trace: genTrace } = await generateDynamicQuestions(examType, enrichedConfig, currentKey);
+    if (genTrace) console.info('[Trace] Generation:', genTrace);
     if (error) setApiError(error);
 
     if (!fetchedQuestions || !Array.isArray(fetchedQuestions) || fetchedQuestions.length === 0) {
@@ -737,7 +739,9 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
       const groqKey = apiKeys['llama'] || DEFAULT_GROQ_KEY;
       const usingSharedKey = !apiKeys['llama'] || apiKeys['llama'].trim() === '' || apiKeys['llama'] === DEFAULT_GROQ_KEY;
 
-      const { questions: fetched } = await generateDynamicQuestions(examType, reviewConfig, groqKey);
+      // ── CHANGED: destructure trace from result ───────────────────────────
+      const { questions: fetched, trace: reviewTrace } = await generateDynamicQuestions(examType, reviewConfig, groqKey);
+      if (reviewTrace) console.info('[Trace] Review generation:', reviewTrace);
 
       if (fetched?.length > 0) {
         let refined = fetched;

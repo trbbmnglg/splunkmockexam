@@ -30,7 +30,7 @@ export async function handleCommunity(request, env, ok, err) {
       END as error_rate
     FROM community_stats
     WHERE exam_type = ?
-      AND total_attempts >= 10  -- Only show topics with meaningful sample size
+      AND total_attempts >= 3   -- Lowered from 10 for early usage; raise once traffic grows
     ORDER BY error_rate DESC
   `).bind(examType).all();
 

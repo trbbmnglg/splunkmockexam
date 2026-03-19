@@ -1,0 +1,38 @@
+# .github/workflows/sitemap-sample.yml
+#
+# Fetches help.splunk.com sitemap and outputs URL structure analysis.
+# Run this to understand what version format and section/book paths
+# help.splunk.com actually uses before probing for specific pages.
+#
+# Trigger: Manual only (workflow_dispatch)
+# No secrets required.
+
+name: "Layer 2: Analyze Sitemap Structure"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sample:
+    name: Analyze help.splunk.com sitemap structure
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Run sitemap sampler
+        run: bun scripts/sitemap-sample.js 2>&1 | tee /tmp/sitemap-analysis.txt
+
+      - name: Upload analysis
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sitemap-analysis
+          path: /tmp/sitemap-analysis.txt

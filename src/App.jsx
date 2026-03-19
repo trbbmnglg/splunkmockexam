@@ -362,7 +362,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     if (passages.length > 0) console.log(`[Layer2] Retrieved ${passages.length} doc passages for grounding`);
 
     const promptWithDocs = buildAgenticPrompt(examType, examConfig.numQuestions, examConfig.selectedTopics, examConfig.aiProvider, passages);
-    const enrichedConfig = { ...examConfig, customPrompt: promptWithDocs };
+    const enrichedConfig = { ...examConfig, customPrompt: promptWithDocs, passages };
 
     setLoadingText(`Generating ${examConfig.numQuestions} dynamic questions using ${examConfig.aiProvider.toUpperCase()}...`);
 
@@ -478,7 +478,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
 
     if (weakTopics.length > 0 && aiCount > 0) {
       setLoadingText(`Generating ${aiCount} fresh questions on your weak topics...`);
-      const reviewConfig   = { ...examConfig, numQuestions: aiCount, selectedTopics: weakTopics, customPrompt: buildAgenticPrompt(examType, aiCount, weakTopics, examConfig.aiProvider) };
+      const reviewConfig = { ...examConfig, numQuestions: aiCount, selectedTopics: weakTopics, customPrompt: buildAgenticPrompt(examType, aiCount, weakTopics, examConfig.aiProvider), passages: [] };
       const groqKey        = apiKeys['llama'] || DEFAULT_GROQ_KEY;
       const usingSharedKey = !apiKeys['llama'] || apiKeys['llama'].trim() === '' || apiKeys['llama'] === DEFAULT_GROQ_KEY;
 

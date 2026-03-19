@@ -3,6 +3,7 @@ import { handleCommunity } from './routes/community.js';
 import { handleWrongAnswers } from './routes/wrongAnswers.js';
 import { handleRetrieve } from './routes/retrieve.js';
 import { handleWebhook } from './routes/webhook.js';
+import { handleUsage }   from './routes/usage.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -48,6 +49,11 @@ export default {
       // Fix: webhook route was missing — FeedbackModal POSTs here
       if (url.pathname === '/api/webhook') {
         return await handleWebhook(request, env, ok, err);
+      }
+
+      // Daily exam limit for shared-key users
+      if (url.pathname === '/api/usage') {
+        return await handleUsage(request, env, ok, err);
       }
 
       return err('Endpoint not found', 404);

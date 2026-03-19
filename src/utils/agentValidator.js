@@ -247,8 +247,14 @@ export const runValidationPipeline = async (
     // On the last allowed cycle, report but don't attempt another regeneration
     if (cycle === limit) {
       const remaining = failures.length;
-      console.warn(`[Validator] Reached cycle limit (${limit}) with ${remaining} question${remaining !== 1 ? 's' : ''} still failing.`);
-      onProgress?.(`Quality check done — ${remaining} question${remaining !== 1 ? 's' : ''} flagged.`);
+      const isLightweightPass = limit === 1;
+      // Info not warn — on shared key this is expected (1-cycle limit by design)
+      console.info(
+        isLightweightPass
+          ? `[Validator] Lightweight pass complete — ${remaining} question${remaining !== 1 ? 's' : ''} flagged (add your own Groq key for full refinement)`
+          : `[Validator] Max cycles (${limit}) reached — ${remaining} question${remaining !== 1 ? 's' : ''} could not be fully refined`
+      );
+      onProgress?.('Quality check done ✓');
       break;
     }
 

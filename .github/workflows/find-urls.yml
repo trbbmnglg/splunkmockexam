@@ -1,0 +1,54 @@
+# .github/workflows/find-urls.yml
+#
+# Attempts to find correct help.splunk.com replacement URLs for every
+# dead docs.splunk.com URL in scripts/splunk-urls.js.
+#
+# Strategy 1: Fetch help.splunk.com sitemap and find best keyword match
+# Strategy 2: If sitemap unavailable, direct-probe candidate URL patterns
+#
+# Trigger: Manual only (workflow_dispatch)
+# No secrets required.
+#
+# Artifacts produced:
+#   url-replacements  — patch file listing OLD → NEW for each dead URL found
+
+name: "Layer 2: Find Replacement URLs"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  find:
+    name: Find replacement URLs for dead docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run URL finder
+        run: bun scripts/find-urls.js 2>&1 | tee /tmp/find-report.txt
+
+      - name: Upload replacement patch
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: url-replacements
+          path: /tmp/url-replacements.txt
+          if-no-files-found: warn
+
+      - name: Upload full report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: find-report
+          path: /tmp/find-report.txt

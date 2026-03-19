@@ -1,0 +1,51 @@
+# .github/workflows/probe-urls.yml
+#
+# Probes specific candidate URLs for the 21 topics that the sitemap
+# keyword-matcher got wrong or couldn't find.
+#
+# Run this AFTER find-urls workflow has completed.
+# Produces /tmp/url-patches.txt with verified NEW URLs.
+#
+# Trigger: Manual only (workflow_dispatch)
+# No secrets required.
+
+name: "Layer 2: Probe Candidate URLs"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: Probe candidate replacement URLs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run URL prober
+        run: bun scripts/probe-urls.js 2>&1 | tee /tmp/probe-report.txt
+
+      - name: Upload patch file
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: url-patches
+          path: /tmp/url-patches.txt
+          if-no-files-found: warn
+
+      - name: Upload probe report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-report
+          path: /tmp/probe-report.txt

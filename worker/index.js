@@ -2,8 +2,8 @@ import { handleProfile } from './routes/profile.js';
 import { handleCommunity } from './routes/community.js';
 import { handleWrongAnswers } from './routes/wrongAnswers.js';
 import { handleRetrieve } from './routes/retrieve.js';
+import { handleWebhook } from './routes/webhook.js';
 
-// Standard CORS headers for your API
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
@@ -14,12 +14,10 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // 1. Handle CORS Preflight requests
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // Define helper functions that the route handlers expect
     const ok = (data) => new Response(JSON.stringify(data), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -31,25 +29,27 @@ export default {
     });
 
     try {
-      // 2. Route the requests to their specific handlers
-      // Mapping to the named exports from your route files
       if (url.pathname === '/api/profile') {
         return await handleProfile(request, env, ok, err);
       }
-      
+
       if (url.pathname === '/api/community') {
         return await handleCommunity(request, env, ok, err);
       }
-      
+
       if (url.pathname === '/api/wrongAnswers' || url.pathname === '/api/wrong-answers') {
         return await handleWrongAnswers(request, env, ok, err);
       }
-      
+
       if (url.pathname === '/api/retrieve') {
         return await handleRetrieve(request, env, ok, err);
       }
 
-      // 3. Fallback 404 if no route matches
+      // Fix: webhook route was missing — FeedbackModal POSTs here
+      if (url.pathname === '/api/webhook') {
+        return await handleWebhook(request, env, ok, err);
+      }
+
       return err('Endpoint not found', 404);
 
     } catch (error) {

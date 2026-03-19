@@ -60,7 +60,7 @@ This tool does not sell your personal information. API keys are stored locally i
 ];
 
 // ─── WrongAnswerCard — lazy explanation per missed question ──────────────────
-function WrongAnswerCard({ questionIndex, question, yourAnswer, correctAnswer, allOptions, topic, examType, blueprintLevel, apiKey, docSource }) {
+function WrongAnswerCard({ questionIndex, question, yourAnswer, correctAnswer, allOptions, topic, examType, blueprintLevel, apiKey, docSource, timesMissed = 1 }) {
   const [state, setState] = useState('idle');
   const [explanation, setExplanation] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
@@ -70,7 +70,7 @@ function WrongAnswerCard({ questionIndex, question, yourAnswer, correctAnswer, a
     setState('loading');
     try {
       const result = await fetchExplanation(
-        { question, yourAnswer, correctAnswer, allOptions, topic, examType, blueprintLevel },
+        { question, yourAnswer, correctAnswer, allOptions, topic, examType, blueprintLevel, timesMissed },
         apiKey
       );
       setExplanation(result);
@@ -100,6 +100,16 @@ function WrongAnswerCard({ questionIndex, question, yourAnswer, correctAnswer, a
             <div className="flex items-center gap-2 mb-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Q{questionIndex + 1}</span>
               <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium truncate">{topic}</span>
+              {timesMissed >= 3 && (
+                <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
+                  Missed {timesMissed}× — deep explanation
+                </span>
+              )}
+              {timesMissed === 2 && (
+                <span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
+                  Missed {timesMissed}× — detailed explanation
+                </span>
+              )}
             </div>
             <p className="text-sm font-medium text-slate-800 leading-relaxed">{question}</p>
             <div className="mt-3 space-y-1.5">
@@ -1688,6 +1698,7 @@ ${p.text.slice(0, 600)}
                     blueprintLevel={bp?.level || 'Intermediate-Level'}
                     apiKey={groqKey}
                     docSource={q.docSource || ''}
+                    timesMissed={q.times_missed || 1}
                   />
                 ))}
               </div>

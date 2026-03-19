@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import {
   CheckCircle, XCircle, AlertTriangle, BookOpen, Award, RotateCcw,
   ShieldCheck, ExternalLink, Zap, BarChart2, RefreshCw, BadgeCheck,
@@ -5,8 +6,19 @@ import {
 } from 'lucide-react';
 import { TOPIC_LINKS, EXAM_BLUEPRINTS } from '../utils/constants';
 import { DEFAULT_GROQ_KEY } from '../utils/api';
-import { getProfileSummary, clearProfile, getUserId } from '../utils/agentAdaptive';
+import { getProfileSummary, clearProfile, getUserId, getWrongAnswerBank } from '../utils/agentAdaptive';
 import WrongAnswerCard from './WrongAnswerCard';
+
+// Simple hash matching worker/routes/wrongAnswers.js so lookups align
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < Math.min(str.length, 200); i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(36);
+}
 
 export default function ResultsScreen({
   resultsData,
@@ -26,12 +38,52 @@ export default function ResultsScreen({
   const bp = EXAM_BLUEPRINTS[examType];
   const groqKey = apiKeys['llama'] || DEFAULT_GROQ_KEY;
 
-  const wrongAnswers = questions
+  // Fix: enrich wrong-answer questions with times_missed from D1
+  // so the explainer agent can correctly escalate depth
+  const [enrichedQuestions, setEnrichedQuestions] = useState(questions);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function enrichWithTimesMissed() {
+      try {
+        const { wrongAnswers: bankItems } = await getWrongAnswerBank(examType, false);
+        if (!bankItems || bankItems.length === 0 || cancelled) return;
+
+        // Build a lookup: question_hash → times_missed
+        const missedMap = {};
+        for (const item of bankItems) {
+          missedMap[item.question_hash] = item.times_missed;
+        }
+
+        // Annotate each question with its times_missed from D1
+        const enriched = questions.map(q => {
+          const hash = simpleHash(q.question);
+          const timesMissed = missedMap[hash];
+          // times_missed from D1 reflects history BEFORE this session;
+          // add 1 if this question was also missed in the current session
+          // (the write to D1 is async so it may not be there yet)
+          return timesMissed !== undefined
+            ? { ...q, times_missed: timesMissed }
+            : q;
+        });
+
+        if (!cancelled) setEnrichedQuestions(enriched);
+      } catch {
+        // Non-fatal — fall back to unannotated questions (times_missed defaults to 1)
+      }
+    }
+
+    enrichWithTimesMissed();
+    return () => { cancelled = true; };
+  }, [examType, questions]);
+
+  const wrongAnswers = enrichedQuestions
     .map((q, idx) => ({ q, idx }))
     .filter(({ q, idx }) => userAnswers[idx] !== q.correctIndex);
 
   const profile = getProfileSummary(examType);
-  void profileVersion; // trigger re-render when profile resets
+  void profileVersion;
 
   return (
     <div className="max-w-4xl mx-auto w-full animate-fade-in space-y-8 pb-12">

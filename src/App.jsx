@@ -460,7 +460,21 @@ Source: ${p.url}
 ${p.text.slice(0, 600)}
 ---`).join('\n\n')}
 
-` : ''}QUESTION QUALITY RULES — every question must follow ALL of these:
+` : ''}STRICT TOPIC BOUNDARY — this is the most important rule:
+You MUST generate questions ONLY within the topics listed in the TOPIC DISTRIBUTION section above.
+Do NOT introduce any topic, concept, or Splunk feature that belongs to a different certification exam.
+Examples of what is FORBIDDEN for this exam ("${type}"):
+${type === 'User' ? `- Any question about indexer clusters, search head clusters, deployment servers, or forwarders — those are Enterprise Admin topics
+- Any question about security, threat detection, SIEM, or Splunk ES — those are Cybersecurity topics
+- Any question about CIM, data models, macros, or workflow actions — those are Power User topics
+- Any question about metrics, detectors, or OpenTelemetry — those are O11y topics` : ''}${type === 'Power User' ? `- Any question about indexer clusters, license management, or Splunk infrastructure — those are Enterprise Admin topics
+- Any question about security, threat detection, or Splunk ES — those are Cybersecurity topics
+- Any question about SmartStore, multisite clusters, or capacity planning — those are Architect topics` : ''}${type === 'Cloud Admin' ? `- Any question about on-premises Enterprise clustering or indexer cluster manager nodes — those are Enterprise Architect topics
+- Any question about security threat detection or Splunk ES — those are Cybersecurity topics` : ''}${type === 'Enterprise Admin' ? `- Any question about multisite indexer clusters or SmartStore — those are Enterprise Architect topics
+- Any question about security threat detection or Splunk ES — those are Cybersecurity topics` : ''}
+Every question's "topic" field must exactly match one of the topic names in the TOPIC DISTRIBUTION above.
+
+QUESTION QUALITY RULES — every question must follow ALL of these:
 1. Each question tests ONE specific, distinct concept. No two questions may test the same concept, even if the topic is the same.
 2. Options must be grammatically parallel and similar in length (within ~10 words of each other). Never mix full sentences with single words as options.
 3. All 4 options must be plausible to someone with partial knowledge — distractors should reflect real common misconceptions, not obvious wrong answers.

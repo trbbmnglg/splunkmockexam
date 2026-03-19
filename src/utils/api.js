@@ -1,6 +1,6 @@
 const getEnvVar = (viteKey, fallback = '') => {
   try {
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[viteKey]) 
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[viteKey])
       return import.meta.env[viteKey];
   } catch (e) { /* Ignore */ }
   return fallback;
@@ -10,22 +10,36 @@ export const DEFAULT_GROQ_KEY = getEnvVar('VITE_GROQ_TOKEN', '');
 export const CF_WEBHOOK_URL = getEnvVar('VITE_CF_WEBHOOK_URL', '');
 export const CF_WEBHOOK_TOKEN = getEnvVar('VITE_CF_WEBHOOK_TOKEN', '');
 
+// ─── fetchWithRetry — handles 429 with retry-after header ────────────────────
 export const fetchWithRetry = async (url, options, maxRetries = 5, timeoutMs = 30000) => {
-  const delays = [1000, 2000, 4000, 8000];
+  const baseDelays = [1000, 2000, 4000, 8000, 16000];
   for (let i = 0; i < maxRetries; i++) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(url, { ...options, signal: controller.signal });
       clearTimeout(timeoutId);
+
+      if (response.status === 429) {
+        // Respect Groq's retry-after header if present, otherwise exponential backoff
+        const retryAfter = response.headers.get('retry-after');
+        const waitMs = retryAfter
+          ? Math.ceil(parseFloat(retryAfter) * 1000)
+          : baseDelays[Math.min(i, baseDelays.length - 1)];
+        console.warn(`[API] 429 rate limited — waiting ${(waitMs / 1000).toFixed(1)}s before retry ${i + 1}/${maxRetries}`);
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+        continue; // don't count as a throw, retry same index
+      }
+
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       return await response.json();
     } catch (error) {
       clearTimeout(timeoutId);
       if (i === maxRetries - 1) throw error;
-      await new Promise(resolve => setTimeout(resolve, delays[i]));
+      await new Promise(resolve => setTimeout(resolve, baseDelays[Math.min(i, baseDelays.length - 1)]));
     }
   }
+  throw new Error(`Max retries (${maxRetries}) exceeded`);
 };
 
 export const validateSubmissionWithAI = async (data, apiKey) => {

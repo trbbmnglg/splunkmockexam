@@ -2,19 +2,17 @@
  * agentValidator.js — Layer 1: Self-Validation & Refinement Agent
  *
  * Changes from original:
- *   - Both LLM calls (validateQuestions, regenerateFailedQuestions) now use
- *     response_format: { type: 'json_object' } on Groq, eliminating markdown
- *     fence stripping and bare-array extraction hacks.
- *   - fetchWithRetry receives a lightweight trace stub so 429-retries are
- *     counted and surfaced in the pipeline log.
- *   - The regeneration prompt wraps its output in { "replacements": [...] }
- *     to satisfy json_object mode (root must be an object, not an array).
+ *   - runValidationPipeline now accepts an optional maxCycles parameter.
+ *     Pass 1 for a lightweight single-pass check (used when running on the
+ *     shared Groq key). Defaults to MAX_CYCLES (4) for users with own keys.
+ *   - Both LLM calls use response_format: { type: 'json_object' }.
+ *   - The regeneration prompt wraps output in { "replacements": [...] }.
  */
 
 import { fetchWithRetry } from './api.js';
 
-const QUALITY_THRESHOLD = 0.10; // stop when < 10% of questions fail
-const MAX_CYCLES        = 4;    // hard ceiling
+const QUALITY_THRESHOLD = 0.10;
+const MAX_CYCLES        = 4;
 
 // ─── validateQuestions ────────────────────────────────────────────────────────
 export const validateQuestions = async (questions, examType, blueprintLevel, apiKey) => {
@@ -60,7 +58,6 @@ Format:
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model:           'llama-3.3-70b-versatile',
-          // json_object mode: validator must return { "failures": [...] }
           response_format: { type: 'json_object' },
           messages: [
             {
@@ -78,8 +75,6 @@ Format:
 
     const text = response?.choices?.[0]?.message?.content || '{"failures":[]}';
 
-    // With json_object mode the response should already be clean JSON.
-    // Keep a lightweight fallback just in case.
     let parsed;
     try {
       parsed = JSON.parse(text);
@@ -102,9 +97,9 @@ const regenerateFailedQuestions = async (failures, originalQuestions, examType, 
   if (failures.length === 0) return [];
 
   const failedDetails = failures.map(f => ({
-    index:       f.index,
-    original:    originalQuestions[f.index],
-    reason:      f.reason,
+    index:        f.index,
+    original:     originalQuestions[f.index],
+    reason:       f.reason,
     rules_failed: f.rules_failed
   }));
 
@@ -209,12 +204,26 @@ const mergeReplacements = (questions, replacements) => {
 };
 
 // ─── runValidationPipeline ────────────────────────────────────────────────────
-export const runValidationPipeline = async (questions, examType, blueprintLevel, apiKey, onProgress) => {
+// maxCycles: optional override. Pass 1 for a lightweight single-pass check
+// (used when running on the shared Groq key to protect quota).
+// Defaults to MAX_CYCLES (4) for full validation.
+export const runValidationPipeline = async (
+  questions,
+  examType,
+  blueprintLevel,
+  apiKey,
+  onProgress,
+  maxCycles = MAX_CYCLES
+) => {
   let current = [...questions];
   const log   = [];
+  const limit  = Math.min(maxCycles, MAX_CYCLES);
 
-  for (let cycle = 1; cycle <= MAX_CYCLES; cycle++) {
-    onProgress?.(`Validating question quality (pass ${cycle}/${MAX_CYCLES})...`);
+  for (let cycle = 1; cycle <= limit; cycle++) {
+    const cycleLabel = limit === 1
+      ? 'Running quality check...'
+      : `Validating question quality (pass ${cycle}/${limit})...`;
+    onProgress?.(cycleLabel);
 
     const failures    = await validateQuestions(current, examType, blueprintLevel, apiKey);
     const failureRate = failures.length / current.length;
@@ -235,6 +244,14 @@ export const runValidationPipeline = async (questions, examType, blueprintLevel,
       break;
     }
 
+    // On the last allowed cycle, report but don't attempt another regeneration
+    if (cycle === limit) {
+      const remaining = failures.length;
+      console.warn(`[Validator] Reached cycle limit (${limit}) with ${remaining} question${remaining !== 1 ? 's' : ''} still failing.`);
+      onProgress?.(`Quality check done — ${remaining} question${remaining !== 1 ? 's' : ''} flagged.`);
+      break;
+    }
+
     onProgress?.(`Refining ${failures.length} question${failures.length !== 1 ? 's' : ''} that failed review (${Math.round(failureRate * 100)}% failure rate)...`);
 
     const replacements = await regenerateFailedQuestions(failures, current, examType, blueprintLevel, apiKey);
@@ -245,12 +262,6 @@ export const runValidationPipeline = async (questions, examType, blueprintLevel,
     }
 
     current = mergeReplacements(current, replacements);
-
-    if (cycle === MAX_CYCLES) {
-      const remaining = failures.length;
-      console.warn(`[Validator] Reached max cycles (${MAX_CYCLES}) with ${remaining} question${remaining !== 1 ? 's' : ''} still failing.`);
-      onProgress?.(`Validation complete — ${remaining} question${remaining !== 1 ? 's' : ''} could not be fully refined.`);
-    }
   }
 
   return { questions: current, validationLog: log };

@@ -34,6 +34,7 @@ export default function App() {
   const [reviewQuestionHashes,  setReviewQuestionHashes]  = useState([]);
   const [docPassages,           setDocPassages]           = useState([]);
   const [lastValidationLog,     setLastValidationLog]     = useState([]);
+  const [usageInfo,             setUsageInfo]             = useState(null);
 
   const [apiKeys, setApiKeys] = useState(() => {
     const VALID = { perplexity: '', gemini: '', llama: DEFAULT_GROQ_KEY, qwen: '' };
@@ -299,7 +300,28 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     setExamConfig(prev => ({ ...prev, numQuestions: selectedType === 'Power User' ? 25 : 20, selectedTopics: [], useTimer: true }));
     setGameState('config');
     loadProfile(selectedType).catch(() => {});
-  }, []);
+
+    // Fetch usage info for shared-key users so ConfigScreen can show the indicator
+    const groqKey        = apiKeys['llama'];
+    const usingSharedKey = !groqKey || groqKey.trim() === '' || groqKey === DEFAULT_GROQ_KEY;
+    if (usingSharedKey) {
+      try {
+        const BASE_URL = import.meta.env.MODE === 'development'
+          ? '/api'
+          : 'https://splunkmockexam.gtaad-innovations.com/api';
+        const { getUserId } = await import('./utils/agentAdaptive.js');
+        const userId = getUserId();
+        const res = await fetch(`${BASE_URL}/usage?userId=${encodeURIComponent(userId)}`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) setUsageInfo(await res.json());
+      } catch {
+        // Non-fatal — indicator just won't show
+      }
+    } else {
+      setUsageInfo(null); // own-key users don't see the indicator
+    }
+  }, [apiKeys]);
 
   // ── handleStartExam ────────────────────────────────────────────────────────
   // Fix 3: Layer 1 validation now runs for ALL users.
@@ -635,6 +657,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
             setShowAdvanced={setShowAdvanced}
             onBack={() => setGameState('menu')}
             onStart={handleStartExam}
+            usageInfo={usageInfo}
           />
         )}
 

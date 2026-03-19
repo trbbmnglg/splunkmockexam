@@ -3,16 +3,142 @@ import { ShieldCheck, Award, Zap, Cloud, Server, Building, Briefcase, LineChart,
 export const CURRENT_YEAR = new Date().getFullYear();
 export const YEAR_RANGE = CURRENT_YEAR > 2025 ? `2025-${CURRENT_YEAR}` : `2025`;
 
+// ─── TOPICS must match EXAM_BLUEPRINTS topic names EXACTLY ───────────────────
+// These drive the topic-selection checkboxes AND the adaptive profile keys.
+// If they drift from the blueprint names, the adaptive weighting breaks and
+// the AI may generate off-topic questions.
 export const TOPICS = {
-  "Power User": ["Field Aliases", "Calculated Fields", "Creating Tags and Event Types", "Using Macros", "Creating Workflow Actions", "Data Models", "Normalizing Data with the CIM", "Working with Time and Time Modifiers", "Statistical Processing", "Comparing Values and Correlation Analysis", "Result Modification"],
-  "User": ["Splunk Search Basics", "Basic SPL", "Using Fields", "Creating Basic Reports and Dashboards", "Creating Alerts", "Splunk Components (Forwarders, Indexers, Search Heads)"],
-  "Advanced Power User": ["Advanced Search Commands", "Advanced Evaluating and Formatting", "Regular Expressions in Splunk", "Advanced Dashboards and Visualizations", "Data Models and Pivot", "Advanced Macros and Custom Commands"],
-  "Cloud Admin": ["Splunk Cloud Architecture", "User and Role Management", "Data Inputs and Forwarder Management", "App Deployment in Splunk Cloud", "Index Management and Retention", "Monitoring and Troubleshooting Splunk Cloud"],
-  "Enterprise Admin": ["Splunk Architecture and Deployment", "License Management", "User Management and Authentication", "Data Inputs and Parsing", "Distributed Search", "Index Cluster Management", "Search Head Cluster Management"],
-  "Enterprise Architect": ["Splunk Deployment Planning", "Infrastructure Sizing and Storage", "Data Collection Strategy", "High Availability and Disaster Recovery", "Security and Compliance", "Performance Tuning and Scaling"],
-  "Consultant": ["Splunk Deployment Methodology", "Architecture Best Practices", "Data Onboarding Strategies", "Advanced Troubleshooting", "Performance Optimization", "Project Management for Splunk Services"],
-  "O11y Metrics User": ["Metrics Basics and Formats", "Splunk Infrastructure Monitoring (SIM) Concepts", "Charting and Visualizations", "Dashboards in SIM", "Detectors and Alerts", "Analytics and Functions"],
-  "Cybersecurity Defense Engineer": ["Cybersecurity Landscape", "Security Operations (SecOps)", "Threat Detection and Investigation", "Incident Response", "Splunk Enterprise Security (ES) Basics", "Threat Intelligence and Hunting"]
+  "User": [
+    "Splunk Basics",
+    "Basic Searching",
+    "Using Fields in Searches",
+    "Search Language Fundamentals",
+    "Using Basic Transforming Commands",
+    "Creating Reports and Dashboards",
+    "Creating and Using Lookups",
+    "Creating Scheduled Reports and Alerts",
+  ],
+  "Power User": [
+    "Using Transforming Commands for Visualizations",
+    "Filtering and Formatting Results",
+    "Correlating Events",
+    "Creating and Managing Fields",
+    "Creating Field Aliases and Calculated Fields",
+    "Creating Tags and Event Types",
+    "Creating and Using Macros",
+    "Creating and Using Workflow Actions",
+    "Creating Data Models",
+    "Using the Common Information Model (CIM)",
+  ],
+  "Advanced Power User": [
+    "Exploring Statistical Commands",
+    "Exploring eval Command Functions",
+    "Exploring Lookups",
+    "Exploring Alerts",
+    "Advanced Field Creation and Management",
+    "Working with Self-Describing Data and Files",
+    "Advanced Search Macros",
+    "Using Acceleration Options: Reports & Summary Indexing",
+    "Using Acceleration Options: Data Models & tsidx",
+    "Using Search Efficiently",
+    "More Search Tuning",
+    "Manipulating and Filtering Data",
+    "Working with Multivalued Fields",
+    "Using Advanced Transactions",
+    "Working with Time",
+    "Using Subsearches",
+    "Creating a Prototype",
+    "Using Forms",
+    "Improving Performance",
+    "Customizing Dashboards",
+    "Adding Drilldowns",
+    "Adding Advanced Behaviors and Visualizations",
+  ],
+  "Cloud Admin": [
+    "Splunk Cloud Overview",
+    "Index Management",
+    "User Authentication and Authorization",
+    "Splunk Configuration Files",
+    "Getting Data in Cloud",
+    "Forwarder Management",
+    "Monitor Inputs",
+    "Network and Other Inputs",
+    "Fine-tuning Inputs",
+    "Parsing Phase and Data Preview",
+    "Manipulating Raw Data",
+    "Installing and Managing Apps",
+    "Working with Splunk Cloud Support",
+  ],
+  "Enterprise Admin": [
+    "Splunk Admin Basics",
+    "License Management",
+    "Splunk Configuration Files",
+    "Splunk Indexes",
+    "Splunk User Management",
+    "Splunk Authentication Management",
+    "Getting Data In",
+    "Distributed Search",
+    "Getting Data In – Staging",
+    "Configuring Forwarders",
+    "Forwarder Management",
+    "Monitor Inputs",
+    "Network and Scripted Inputs",
+    "Agentless Inputs",
+    "Fine Tuning Inputs",
+    "Parsing Phase and Data",
+    "Manipulating Raw Data",
+  ],
+  "Enterprise Architect": [
+    "Introduction",
+    "Project Requirements",
+    "Infrastructure Planning: Index Design",
+    "Infrastructure Planning: Resource Planning",
+    "Clustering Overview",
+    "Forwarder and Deployment Best Practices",
+    "Performance Monitoring and Tuning",
+    "Splunk Troubleshooting Methods and Tools",
+    "Clarifying the Problem",
+    "Licensing and Crash Problems",
+    "Configuration Problems",
+    "Search Problems",
+    "Deployment Problems",
+    "Large-scale Splunk Deployment Overview",
+    "Single-site Indexer Cluster",
+    "Multisite Indexer Cluster",
+    "Indexer Cluster Management and Administration",
+    "Search Head Cluster",
+    "Search Head Cluster Management and Administration",
+    "KV Store Collection and Lookup Management",
+  ],
+  "Consultant": [
+    "Deploying Splunk",
+    "Monitoring Console",
+    "Access and Roles",
+    "Data Collection",
+    "Indexing",
+    "Search",
+    "Configuration Management",
+    "Indexer Clustering",
+    "Search Head Clustering",
+  ],
+  "O11y Metrics User": [
+    "Get Metrics In with OpenTelemetry",
+    "Metrics Concepts",
+    "Monitor Using Built-in Content",
+    "Introduction to Visualizing Metrics",
+    "Introduction to Alerting on Metrics with Detectors",
+    "Create Efficient Dashboards and Alerts",
+    "Finding Insights Using Analytics",
+    "Detectors for Common Use Cases",
+  ],
+  "Cybersecurity Defense Engineer": [
+    "The Cyber Landscape, Frameworks, and Standards",
+    "Threat and Attack Types, Motivations, and Tactics",
+    "Defenses, Data Sources, and SIEM Best Practices",
+    "Investigation, Event Handling, Correlation, and Risk",
+    "SPL and Efficient Searching",
+    "Threat Hunting and Remediation",
+  ],
 };
 
 export const CERT_CARDS = [
@@ -28,8 +154,29 @@ export const CERT_CARDS = [
 ];
 
 export const TOPIC_LINKS = {
-  "Field Aliases": "https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Abouttagsandaliases",
-  "Splunk Search Basics": "https://docs.splunk.com/Documentation/Splunk/latest/SearchTutorial/WelcometotheSearchTutorial",
+  // User
+  "Splunk Basics": "https://docs.splunk.com/Documentation/Splunk/latest/SearchTutorial/WelcometotheSearchTutorial",
+  "Basic Searching": "https://docs.splunk.com/Documentation/Splunk/latest/Search/GetstartedwithSearch",
+  "Using Fields in Searches": "https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Aboutfields",
+  "Search Language Fundamentals": "https://docs.splunk.com/Documentation/Splunk/latest/Search/Aboutthesearchlanguage",
+  "Using Basic Transforming Commands": "https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/Stats",
+  "Creating Reports and Dashboards": "https://docs.splunk.com/Documentation/Splunk/latest/Report/Aboutreports",
+  "Creating and Using Lookups": "https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Aboutlookupsandfieldactions",
+  "Creating Scheduled Reports and Alerts": "https://docs.splunk.com/Documentation/Splunk/latest/Alert/Aboutalerts",
+  // Power User
+  "Creating Field Aliases and Calculated Fields": "https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Addaliasestofields",
+  "Creating Tags and Event Types": "https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Abouttagsandaliases",
+  "Creating and Using Macros": "https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Definesearchmacros",
+  "Creating and Using Workflow Actions": "https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Aboutworkflowactions",
+  "Creating Data Models": "https://docs.splunk.com/Documentation/Splunk/latest/Knowledge/Aboutdatamodels",
+  "Using the Common Information Model (CIM)": "https://docs.splunk.com/Documentation/CIM/latest/User/Overview",
+  "Correlating Events": "https://docs.splunk.com/Documentation/Splunk/latest/Search/Abouttransactions",
+  // Enterprise Admin
+  "Splunk Indexes": "https://docs.splunk.com/Documentation/Splunk/latest/Indexer/Aboutindexesandindexers",
+  "Splunk Configuration Files": "https://docs.splunk.com/Documentation/Splunk/latest/Admin/Aboutconfigurationfiles",
+  "Distributed Search": "https://docs.splunk.com/Documentation/Splunk/latest/DistSearch/Whatisdistributedsearch",
+  "Configuring Forwarders": "https://docs.splunk.com/Documentation/Forwarder/latest/Forwarder/Abouttheuniversalforwarder",
+  "License Management": "https://docs.splunk.com/Documentation/Splunk/latest/Admin/Aboutlicensemanagement",
 };
 
 export const API_KEY_URLS = {
@@ -47,8 +194,7 @@ export const PRODUCT_CONTEXT_MAP = {
   'Consultant': 'Splunk Enterprise deployment methodologies, data onboarding best practices',
 };
 
-// ─── Official Exam Blueprints ─────────────────────────────────────────────
-// Sourced directly from official Splunk test blueprint PDFs (splunk.com/en_us/pdfs/training/)
+// ─── Official Exam Blueprints ─────────────────────────────────────────────────
 export const EXAM_BLUEPRINTS = {
   "User": {
     questions: 60,

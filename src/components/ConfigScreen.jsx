@@ -1,4 +1,4 @@
-import { Settings, X, ChevronRight, ListChecks, Clock, BookOpen, Cpu, Key, Lock, CheckCircle, ShieldCheck, Globe, Zap, RotateCcw, ExternalLink } from 'lucide-react';
+import { Settings, X, ChevronRight, ListChecks, Clock, BookOpen, Cpu, Key, Lock, CheckCircle, ShieldCheck, Globe, Zap, RotateCcw, ExternalLink, Flame } from 'lucide-react';
 import { TOPICS, EXAM_BLUEPRINTS, API_KEY_URLS, PRODUCT_CONTEXT_MAP, CURRENT_YEAR, YEAR_RANGE } from '../utils/constants';
 import { DEFAULT_GROQ_KEY } from '../utils/api';
 import BlueprintPanel from './BlueprintPanel';
@@ -16,6 +16,7 @@ export default function ConfigScreen({
   setShowAdvanced,
   onBack,
   onStart,
+  usageInfo,   // { count, limit, remaining, resetAt, exceeded } — null for own-key users
 }) {
   const toggleTopic = (topic) => {
     setExamConfig(prev => {
@@ -25,6 +26,29 @@ export default function ConfigScreen({
       return { ...prev, selectedTopics: selected };
     });
   };
+
+  // ── Usage indicator helpers ────────────────────────────────────────────────
+  const showUsage = usageInfo !== null && usageInfo !== undefined;
+  const remaining = usageInfo?.remaining ?? 0;
+  const usageExceeded = usageInfo?.exceeded ?? false;
+
+  const usageColor = usageExceeded
+    ? 'bg-red-50 border-red-200 text-red-700'
+    : remaining <= 2
+      ? 'bg-amber-50 border-amber-200 text-amber-700'
+      : 'bg-green-50 border-green-200 text-green-700';
+
+  const usageDotColor = usageExceeded
+    ? 'bg-red-500'
+    : remaining <= 2
+      ? 'bg-amber-500'
+      : 'bg-green-500';
+
+  const resetTime = usageInfo?.resetAt
+    ? new Date(usageInfo.resetAt).toLocaleTimeString('en-US', {
+        hour: '2-digit', minute: '2-digit', timeZoneName: 'short', timeZone: 'UTC',
+      })
+    : 'midnight UTC';
 
   return (
     <div className="max-w-3xl mx-auto w-full animate-fade-in bg-white shadow-xl p-6 md:p-10 border border-slate-100 rounded-lg">
@@ -40,6 +64,29 @@ export default function ConfigScreen({
           <X className="w-6 h-6" />
         </button>
       </div>
+
+      {/* ── Usage indicator (shared-key users only) ── */}
+      {showUsage && (
+        <div className={`flex items-center justify-between p-3 rounded-lg border mb-6 text-sm font-medium ${usageColor}`}>
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${usageDotColor}`} />
+            {usageExceeded
+              ? `Daily limit reached — resets at ${resetTime}`
+              : `${remaining} of ${usageInfo.limit} free exam${usageInfo.limit !== 1 ? 's' : ''} remaining today`
+            }
+          </div>
+          {(usageExceeded || remaining <= 3) && (
+            <a
+              href="https://console.groq.com/keys"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs font-semibold underline underline-offset-2 hover:no-underline flex-shrink-0 ml-3"
+            >
+              Get free API key <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+        </div>
+      )}
 
       <div className="space-y-8">
         {examType && EXAM_BLUEPRINTS[examType] && (
@@ -236,8 +283,16 @@ export default function ConfigScreen({
 
       <div className="mt-10 flex space-x-4">
         <button onClick={onBack} className="px-6 py-4 font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors rounded">Back</button>
-        <button onClick={onStart} className="flex-1 flex items-center justify-center px-6 py-4 font-bold bg-pink-600 text-white hover:bg-pink-700 rounded transition-transform hover:-translate-y-1 shadow-lg">
-          Generate & Start Exam <ChevronRight className="w-5 h-5 ml-2" />
+        <button
+          onClick={onStart}
+          disabled={usageExceeded}
+          className={`flex-1 flex items-center justify-center px-6 py-4 font-bold rounded transition-transform shadow-lg
+            ${usageExceeded
+              ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'
+              : 'bg-pink-600 text-white hover:bg-pink-700 hover:-translate-y-1'
+            }`}
+        >
+          {usageExceeded ? 'Daily limit reached — add your own key to continue' : <>Generate &amp; Start Exam <ChevronRight className="w-5 h-5 ml-2" /></>}
         </button>
       </div>
     </div>

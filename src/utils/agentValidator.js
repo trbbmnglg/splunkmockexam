@@ -4,7 +4,8 @@
 
 import { fetchWithRetry } from './api.js';
 
-const MAX_RETRY_CYCLES = 2;
+const QUALITY_THRESHOLD = 0.10; // stop when < 10% of questions fail
+const MAX_CYCLES = 4;            // hard ceiling — never exceed this
 
 export const validateQuestions = async (questions, examType, blueprintLevel, apiKey) => {
   if (!questions || questions.length === 0) return [];
@@ -157,24 +158,41 @@ export const runValidationPipeline = async (questions, examType, blueprintLevel,
   let current = [...questions];
   const log = [];
 
-  for (let cycle = 1; cycle <= MAX_RETRY_CYCLES; cycle++) {
-    onProgress?.(`Validating question quality (pass ${cycle}/${MAX_RETRY_CYCLES})...`);
-    const failures = await validateQuestions(current, examType, blueprintLevel, apiKey);
-    log.push({ cycle, failureCount: failures.length, failures });
+  for (let cycle = 1; cycle <= MAX_CYCLES; cycle++) {
+    onProgress?.(`Validating question quality (pass ${cycle}/${MAX_CYCLES})...`);
 
+    const failures = await validateQuestions(current, examType, blueprintLevel, apiKey);
+    const failureRate = failures.length / current.length;
+    log.push({ cycle, failureCount: failures.length, failureRate: Math.round(failureRate * 100), failures });
+
+    // ── Exit early if quality is good enough ─────────────────────────────
     if (failures.length === 0) {
-      onProgress?.('All questions passed quality review ✓');
+      onProgress?.(`All questions passed quality review ✓`);
       break;
     }
 
-    onProgress?.(`Refining ${failures.length} question(s) that failed review...`);
+    if (failureRate <= QUALITY_THRESHOLD) {
+      onProgress?.(`Quality threshold met (${failures.length} minor issue${failures.length !== 1 ? 's' : ''} remaining) ✓`);
+      break;
+    }
+
+    // ── Still above threshold — attempt regeneration ──────────────────────
+    onProgress?.(`Refining ${failures.length} question${failures.length !== 1 ? 's' : ''} that failed review (${Math.round(failureRate * 100)}% failure rate)...`);
+
     const replacements = await regenerateFailedQuestions(failures, current, examType, blueprintLevel, apiKey);
 
-    if (replacements.length > 0) {
-      current = mergeReplacements(current, replacements);
-    } else {
+    if (replacements.length === 0) {
       console.warn(`[Validator] Cycle ${cycle}: regeneration produced no replacements, keeping originals.`);
       break;
+    }
+
+    current = mergeReplacements(current, replacements);
+
+    // ── After final allowed cycle, report what's left ─────────────────────
+    if (cycle === MAX_CYCLES) {
+      const remaining = failures.length;
+      console.warn(`[Validator] Reached max cycles (${MAX_CYCLES}) with ${remaining} question${remaining !== 1 ? 's' : ''} still failing.`);
+      onProgress?.(`Validation complete — ${remaining} question${remaining !== 1 ? 's' : ''} could not be fully refined.`);
     }
   }
 

@@ -107,6 +107,46 @@ export default function App() {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  // ── checkAndIncrementUsage ─────────────────────────────────────────────────
+  // Only called for shared-key users. Returns { allowed, remaining, resetAt }.
+  // Own-key users and review sessions skip this entirely.
+  const checkAndIncrementUsage = async () => {
+    try {
+      const BASE_URL = import.meta.env.MODE === 'development'
+        ? '/api'
+        : 'https://splunkmockexam.gtaad-innovations.com/api';
+      const { getUserId } = await import('./utils/agentAdaptive.js');
+      const userId = getUserId();
+      const res = await fetch(`${BASE_URL}/usage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.status === 429) {
+        const data = await res.json();
+        let parsed = {};
+        try { parsed = JSON.parse(data.error); } catch { parsed = data; }
+        const resetTime = parsed.resetAt
+          ? new Date(parsed.resetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })
+          : 'midnight UTC';
+        return {
+          allowed: false,
+          message: `You've reached the daily limit of 10 free exams (resets at ${resetTime}).\n\nTo keep practising, add your own free Groq API key in Advanced Settings — it takes 30 seconds to get one at console.groq.com/keys`,
+        };
+      }
+      if (res.ok) {
+        const data = await res.json();
+        return { allowed: true, remaining: data.remaining };
+      }
+      // On any unexpected error, allow through — don't block users on infra issues
+      return { allowed: true, remaining: null };
+    } catch {
+      // Network error or timeout — allow through silently
+      return { allowed: true, remaining: null };
+    }
+  };
+
   // ── buildAgenticPrompt ─────────────────────────────────────────────────────
   const buildAgenticPrompt = useCallback((type, num, topics, provider, passages = []) => {
     if (!type) return '';
@@ -274,6 +314,23 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
       return;
     }
 
+    // ── Usage limit check (shared-key users only) ──────────────────────────
+    // Own-key users bypass this entirely — they use their own Groq quota.
+    const groqKey        = apiKeys['llama'];
+    const usingSharedKey = !groqKey || groqKey.trim() === '' || groqKey === DEFAULT_GROQ_KEY;
+
+    if (usingSharedKey && examConfig.aiProvider === 'llama') {
+      const usage = await checkAndIncrementUsage();
+      if (!usage.allowed) {
+        setApiError(usage.message);
+        return;
+      }
+      if (usage.remaining !== null && usage.remaining <= 2) {
+        // Non-blocking low-quota nudge — stored so we can show it after load
+        console.info(`[Usage] ${usage.remaining} shared-key exam${usage.remaining !== 1 ? 's' : ''} remaining today`);
+      }
+    }
+
     setGameState('loading');
     setLoadingText('Retrieving relevant Splunk documentation...');
 
@@ -300,8 +357,6 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     // Layer 1: Validation — runs for ALL users now.
     // usingSharedKey → 1 cycle (lightweight, protects shared quota)
     // own key        → full 4-cycle pipeline
-    const groqKey        = apiKeys['llama'];
-    const usingSharedKey = !groqKey || groqKey.trim() === '' || groqKey === DEFAULT_GROQ_KEY;
     const validationKey  = usingSharedKey ? DEFAULT_GROQ_KEY : groqKey;
     const bp             = EXAM_BLUEPRINTS[examType];
 

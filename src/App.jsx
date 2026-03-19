@@ -309,6 +309,7 @@ export default function App() {
   const [isReviewMode, setIsReviewMode] = useState(false);
   const [reviewQuestionHashes, setReviewQuestionHashes] = useState([]);
   const [docPassages, setDocPassages] = useState([]);
+  const [lastValidationLog, setLastValidationLog] = useState([]);
 
   const [apiKeys, setApiKeys] = useState(() => {
     const VALID_PROVIDERS = { perplexity: '', gemini: '', llama: DEFAULT_GROQ_KEY, qwen: '' };
@@ -487,7 +488,7 @@ ${p.text.slice(0, 600)}
             clearInterval(timerRef.current);
             const { examType: et, questions: qs, userAnswers: ua } = examStateRef.current;
             if (et && qs.length > 0) {
-              updateProfile(et, qs, ua).catch(err =>
+              updateProfile(et, qs, ua, []).catch(err =>
                 console.warn('[App] Profile update on timeout failed:', err.message)
               );
             }
@@ -587,12 +588,13 @@ ${p.text.slice(0, 600)}
     // Skip when using the shared default key — saves rate limit quota.
     // Only runs when the user has provided their own Groq key.
     let validatedQuestions = fetchedQuestions;
+    let validationLog = [];
     const groqKey = apiKeys['llama'];
     const usingSharedKey = !groqKey || groqKey.trim() === '' || groqKey === DEFAULT_GROQ_KEY;
 
     if (!usingSharedKey) {
       const bp = EXAM_BLUEPRINTS[examType];
-      const { questions: refined } = await runValidationPipeline(
+      const { questions: refined, validationLog: log } = await runValidationPipeline(
         fetchedQuestions,
         examType,
         bp?.level || 'Intermediate-Level',
@@ -600,9 +602,12 @@ ${p.text.slice(0, 600)}
         (msg) => setLoadingText(msg)
       );
       validatedQuestions = refined;
+      validationLog = log;
+      setLastValidationLog(log);
     } else {
       setLoadingText('Questions ready ✓');
       await new Promise(r => setTimeout(r, 600));
+      setLastValidationLog([]);
     }
     // ── End Layer 1 ────────────────────────────────────────────────────────
 
@@ -653,7 +658,7 @@ ${p.text.slice(0, 600)}
   const finishExam = useCallback(() => {
     clearInterval(timerRef.current);
     if (examType && questions.length > 0) {
-      updateProfile(examType, questions, userAnswers).catch(err =>
+      updateProfile(examType, questions, userAnswers, lastValidationLog).catch(err =>
         console.warn('[App] Profile update failed:', err.message)
       );
     }
@@ -664,7 +669,7 @@ ${p.text.slice(0, 600)}
     setReviewQuestionHashes([]);
     setDocPassages([]);
     setGameState('results');
-  }, [examType, questions, userAnswers, isReviewMode, reviewQuestionHashes]);
+  }, [examType, questions, userAnswers, isReviewMode, reviewQuestionHashes, lastValidationLog]);
 
   // ── Launch a review session from the results page ───────────────────────
   const handleStartReview = useCallback(async () => {

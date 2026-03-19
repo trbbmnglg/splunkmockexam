@@ -350,7 +350,7 @@ export const SPLUNK_DOC_URLS = [
     certType: 'Enterprise Admin', topic: 'Splunk Authentication Management',
     urls: [
       `${H}/administer/manage-users-and-security/9.4/use-ldap-as-an-authentication-scheme/set-up-user-authentication-with-ldap`,
-      `${H}/administer/manage-users-and-security/9.4/manage-users`,
+      `${HDM}/splunk-enterprise-admin-manual/9.4/manage-users/about-users-and-roles`,
     ]
   },
   {

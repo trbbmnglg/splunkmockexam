@@ -1,9 +1,21 @@
+/**
+ * scripts/splunk-urls.js
+ *
+ * Curated Splunk documentation URLs for each certification topic.
+ *
+ * URL prefixes:
+ *   S   = docs.splunk.com/Splunk/9.4.2 (confirmed working)
+ *   SC  = docs.splunk.com/SplunkCloud/latest (working)
+ *   CIM = docs.splunk.com/CIM/latest (separate product, unaffected)
+ *   ES  = docs.splunk.com/ES/latest (separate product, unaffected)
+ *   H   = help.splunk.com/en/splunk-enterprise/administer (verified working)
+ *   HDM = help.splunk.com/en/data-management (verified working)
+ */
+
 const S   = 'https://docs.splunk.com/Documentation/Splunk/9.4.2';
 const SC  = 'https://docs.splunk.com/Documentation/SplunkCloud/latest';
 const CIM = 'https://docs.splunk.com/Documentation/CIM/latest';
 const ES  = 'https://docs.splunk.com/Documentation/ES/latest';
-
-// Two verified help.splunk.com base paths used below
 const H   = 'https://help.splunk.com/en/splunk-enterprise/administer';
 const HDM = 'https://help.splunk.com/en/data-management';
 
@@ -40,7 +52,6 @@ export const SPLUNK_DOC_URLS = [
     urls: [
       `${S}/Search/Aboutthesearchlanguage`,
       `${S}/SearchReference/Search`,
-      // Verified working URL (replaced old 404)
       `https://help.splunk.com/en/splunk-enterprise/search/search-manual/9.4/search-language-fundamentals/boolean-expressions-in-searches`,
     ]
   },
@@ -104,8 +115,7 @@ export const SPLUNK_DOC_URLS = [
     certType: 'Power User', topic: 'Creating and Using Workflow Actions',
     urls: [
       `${S}/Knowledge/CreateworkflowactionsinSplunkWeb`,
-      // Verified working
-      `${H}/manage-indexers-and-indexer-clusters/9.4/configure-the-manager-node/manager-node-configuration-overview`,
+      `${S}/Knowledge/Aboutworkflowactions`,
     ]
   },
   {
@@ -144,7 +154,6 @@ export const SPLUNK_DOC_URLS = [
     urls: [
       `${S}/Indexer/Aboutindexesandindexers`,
       `${S}/Indexer/Setupmultipleindexes`,
-      // Verified: data-management portal
       `${HDM}/manage-splunk-enterprise-indexers/9.4/manage-index-storage/configure-index-storage`,
     ]
   },
@@ -153,7 +162,6 @@ export const SPLUNK_DOC_URLS = [
     urls: [
       `${S}/Admin/Aboutconfigurationfiles`,
       `${S}/Admin/Wheretofindtheconfigurationfiles`,
-      // Verified working URL
       `${HDM}/splunk-enterprise-admin-manual/9.4/administer-splunk-enterprise-with-configuration-files/configuration-file-precedence`,
     ]
   },
@@ -161,7 +169,6 @@ export const SPLUNK_DOC_URLS = [
     certType: 'Enterprise Admin', topic: 'Distributed Search',
     urls: [
       `${S}/DistSearch/Whatisdistributedsearch`,
-      // Verified working
       `${H}/distributed-search/9.4/deploy-distributed-search/system-requirements-and-other-deployment-considerations-for-distributed-search`,
       `${H}/distributed-search/9.4/deploy-distributed-search/set-up-a-distributed-search-environment`,
     ]
@@ -184,7 +191,6 @@ export const SPLUNK_DOC_URLS = [
   {
     certType: 'Enterprise Admin', topic: 'License Management',
     urls: [
-      // Verified working URL
       `https://help.splunk.com/en/splunk-enterprise/get-started/install-and-upgrade/9.4/install-a-splunk-enterprise-license/about-splunk-enterprise-licenses`,
       `${S}/Admin/Aboutlicensemanagement`,
     ]
@@ -208,7 +214,6 @@ export const SPLUNK_DOC_URLS = [
   {
     certType: 'Cloud Admin', topic: 'Getting Data in Cloud',
     urls: [
-      // Fall back to docs.splunk.com for Cloud-specific pages (no help.splunk.com 9.4 equivalent confirmed)
       `${SC}/Admin/MonitorInputs`,
       `${SC}/Admin/ConfigureInputsFromSplunkWeb`,
     ]
@@ -248,7 +253,6 @@ export const SPLUNK_DOC_URLS = [
     urls: [
       `${S}/Indexer/Aboutclusters`,
       `${S}/Indexer/Basicclusterarchitecture`,
-      // Verified working
       `${H}/manage-indexers-and-indexer-clusters/9.4/configure-the-manager-node/configure-the-manager-node-with-server.conf`,
     ]
   },
@@ -256,7 +260,6 @@ export const SPLUNK_DOC_URLS = [
     certType: 'Enterprise Architect', topic: 'Multisite Indexer Cluster',
     urls: [
       `${S}/Indexer/Multisiteclusters`,
-      // Verified working
       `${H}/manage-indexers-and-indexer-clusters/9.4/multisite-indexer-clusters/multisite-indexer-cluster-overview`,
     ]
   },
@@ -264,14 +267,12 @@ export const SPLUNK_DOC_URLS = [
     certType: 'Enterprise Architect', topic: 'Search Head Cluster',
     urls: [
       `${S}/DistSearch/AboutSHC`,
-      // This one was already working in the last run
       `${H}/distributed-search/9.4/deploy-search-head-clustering/deploy-a-search-head-cluster`,
     ]
   },
   {
     certType: 'Enterprise Architect', topic: 'Infrastructure Planning: Resource Planning',
     urls: [
-      // Capacity planning moved to a dedicated portal section
       `${S}/Capacity/Overviewofcapacityplanning`,
       `${S}/Capacity/Referencehardware`,
     ]

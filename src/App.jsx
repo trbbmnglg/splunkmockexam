@@ -261,6 +261,11 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     loadProfile(selectedType).catch(() => {});
   }, []);
 
+  // ── handleStartExam ────────────────────────────────────────────────────────
+  // Fix 3: Layer 1 validation now runs for ALL users.
+  //   - Own Groq key  → full pipeline, up to 4 refinement cycles
+  //   - Shared/no key → 1 lightweight cycle (catches critical failures
+  //                     without hammering the shared quota)
   const handleStartExam = useCallback(async () => {
     const rawKey     = apiKeys[examConfig.aiProvider];
     const currentKey = (examConfig.aiProvider === 'llama' && (!rawKey || !rawKey.trim())) ? DEFAULT_GROQ_KEY : rawKey;
@@ -292,25 +297,24 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
       return;
     }
 
-    // Layer 1: Validation
-    let validatedQuestions = fetchedQuestions;
-    let validationLog = [];
+    // Layer 1: Validation — runs for ALL users now.
+    // usingSharedKey → 1 cycle (lightweight, protects shared quota)
+    // own key        → full 4-cycle pipeline
     const groqKey        = apiKeys['llama'];
     const usingSharedKey = !groqKey || groqKey.trim() === '' || groqKey === DEFAULT_GROQ_KEY;
+    const validationKey  = usingSharedKey ? DEFAULT_GROQ_KEY : groqKey;
+    const bp             = EXAM_BLUEPRINTS[examType];
 
-    if (!usingSharedKey) {
-      const bp = EXAM_BLUEPRINTS[examType];
-      const { questions: refined, validationLog: log } = await runValidationPipeline(
-        fetchedQuestions, examType, bp?.level || 'Intermediate-Level', groqKey, (msg) => setLoadingText(msg)
-      );
-      validatedQuestions = refined;
-      validationLog      = log;
-      setLastValidationLog(log);
-    } else {
-      setLoadingText('Questions ready ✓');
-      await new Promise(r => setTimeout(r, 600));
-      setLastValidationLog([]);
-    }
+    const { questions: validatedQuestions, validationLog } = await runValidationPipeline(
+      fetchedQuestions,
+      examType,
+      bp?.level || 'Intermediate-Level',
+      validationKey,
+      (msg) => setLoadingText(msg),
+      usingSharedKey ? 1 : undefined   // 1 cycle for shared key, default (4) for own key
+    );
+
+    setLastValidationLog(validationLog);
 
     const randomizedQuestions = validatedQuestions.map(q => {
       const safeQuestion = typeof q.question === 'string' ? q.question : JSON.stringify(q?.question || 'Missing question text');
@@ -330,6 +334,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
         question:     safeQuestion,
         options:      shuffledOptions,
         correctIndex: correctIndex !== -1 ? correctIndex : 0,
+        answer:       safeAnswer,
         topic:        typeof q.topic     === 'string' ? q.topic     : JSON.stringify(q?.topic     || 'General'),
         docSource:    typeof q.docSource === 'string' ? q.docSource : '',
       };
@@ -404,12 +409,15 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
       if (reviewTrace) console.info('[Trace] Review generation:', reviewTrace);
 
       if (fetched?.length > 0) {
-        let refined = fetched;
-        if (!usingSharedKey) {
-          const bp = EXAM_BLUEPRINTS[examType];
-          const result = await runValidationPipeline(fetched, examType, bp?.level || 'Intermediate-Level', groqKey, (msg) => setLoadingText(msg));
-          refined = result.questions;
-        }
+        const bp = EXAM_BLUEPRINTS[examType];
+        const { questions: refined } = await runValidationPipeline(
+          fetched,
+          examType,
+          bp?.level || 'Intermediate-Level',
+          groqKey,
+          (msg) => setLoadingText(msg),
+          usingSharedKey ? 1 : undefined
+        );
         aiQuestions = refined.map(q => {
           const safeAnswer = typeof q.answer === 'string' ? q.answer : '';
           let opts = Array.isArray(q.options) ? q.options.map(o => typeof o === 'string' ? o : '') : ['A', 'B', 'C', 'D'];

@@ -1065,12 +1065,12 @@ ${p.text.slice(0, 600)}
               </div>
               <p className={`text-slate-500 text-sm ${viewMode === 'grid' ? 'mb-4 flex-grow' : 'flex-grow md:mb-0'}`}>{cert.desc}</p>
 
-              {hardestTopics.length > 0 && (
-                <div className={`${viewMode === 'grid' ? 'mb-4' : 'md:mb-0 md:w-48 flex-shrink-0'}`}>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <Users className="w-3 h-3 text-slate-400" />
-                    <span className="text-xs text-slate-400 font-medium uppercase tracking-wide">Community finds hardest</span>
-                  </div>
+              <div className={`${viewMode === 'grid' ? 'mb-4' : 'md:mb-0 md:w-48 flex-shrink-0'}`}>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Users className="w-3 h-3 text-slate-400" />
+                  <span className="text-xs text-slate-400 font-medium uppercase tracking-wide">Community finds hardest</span>
+                </div>
+                {hardestTopics.length > 0 ? (
                   <div className="space-y-1">
                     {hardestTopics.map((t, i) => (
                       <div key={i} className="flex items-center gap-2">
@@ -1080,8 +1080,10 @@ ${p.text.slice(0, 600)}
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <p className="text-xs text-slate-400 italic">Accumulates after more sessions</p>
+                )}
+              </div>
 
               <button className={`${cert.theme.bg} ${cert.theme.text} font-semibold py-2.5 px-6 rounded ${cert.theme.hoverBg} group-hover:text-white transition-colors flex items-center justify-center
                 ${viewMode === 'grid' ? 'w-full mt-auto' : 'w-full md:w-auto md:flex-shrink-0 whitespace-nowrap'}`}>
@@ -1506,7 +1508,7 @@ ${p.text.slice(0, 600)}
             )}
           </div>
 
-          <div className="space-y-8 flex flex-col">
+          <div className="flex flex-col gap-6">
             {(() => {
               const profile = getProfileSummary(examType);
               void profileVersion;
@@ -1606,7 +1608,7 @@ ${p.text.slice(0, 600)}
             </div>
 
             {passed ? (
-              <div className="bg-white rounded-xl shadow-md p-6 border border-emerald-100 flex flex-col justify-center items-center text-center space-y-4 flex-grow">
+              <div className="bg-white rounded-xl shadow-md p-6 border border-emerald-100 flex flex-col justify-center items-center text-center space-y-4">
                 <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto">
                   <BadgeCheck className="w-8 h-8 text-emerald-600" />
                 </div>
@@ -1625,7 +1627,7 @@ ${p.text.slice(0, 600)}
                 </button>
               </div>
             ) : (
-              <div className="bg-white rounded-xl shadow-md p-6 border border-slate-100 flex flex-col justify-center items-center text-center space-y-4 flex-grow">
+              <div className="bg-white rounded-xl shadow-md p-6 border border-slate-100 flex flex-col justify-center items-center text-center space-y-4">
                 <div className="bg-slate-50 rounded-lg w-full p-5">
                   <AlertTriangle className="w-10 h-10 mx-auto text-orange-400 mb-3" />
                   <h4 className="font-bold text-slate-800 mb-1">Keep Studying</h4>

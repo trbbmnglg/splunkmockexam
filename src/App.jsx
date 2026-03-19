@@ -1578,23 +1578,23 @@ ${p.text.slice(0, 600)}
               if (wrongCount === 0) return null;
               return (
                 <div className="bg-white rounded-xl shadow-md p-6 border border-orange-100">
-                  <div className="flex items-start gap-4">
+                  <div className="flex items-start gap-4 mb-4">
                     <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
                       <RefreshCw className="w-6 h-6 text-orange-600" />
                     </div>
-                    <div className="flex-grow min-w-0">
+                    <div className="min-w-0">
                       <h4 className="font-bold text-slate-800">Review Weak Topics</h4>
-                      <p className="text-slate-500 text-sm mt-1 mb-4">
+                      <p className="text-slate-500 text-sm mt-1">
                         Launch a focused session mixing your {wrongCount} missed question{wrongCount !== 1 ? 's' : ''} with fresh AI questions on the same weak topics.
                       </p>
-                      <button
-                        onClick={handleStartReview}
-                        className="w-full flex items-center justify-center px-6 py-3 rounded-lg font-bold bg-orange-500 text-white hover:bg-orange-600 transition-colors shadow-md"
-                      >
-                        <RefreshCw className="w-4 h-4 mr-2" /> Start Review Session
-                      </button>
                     </div>
                   </div>
+                  <button
+                    onClick={handleStartReview}
+                    className="w-full flex items-center justify-center px-6 py-3 rounded-lg font-bold bg-orange-500 text-white hover:bg-orange-600 transition-colors shadow-md"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" /> Start Review Session
+                  </button>
                 </div>
               );
             })()}

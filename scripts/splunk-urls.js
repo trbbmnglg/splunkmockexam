@@ -621,7 +621,7 @@ export const SPLUNK_DOC_URLS = [
     // Distinct URLs from Metrics Concepts — OTel ingestion path, not metric types
     certType: 'O11y Metrics User', topic: 'Get Metrics In with OpenTelemetry',
     urls: [
-      `${SOC}/get-started/send-data/get-started-send-data`,
+      `${SOC}/manage-data/splunk-distribution-of-the-opentelemetry-collector/get-started-with-the-splunk-distribution-of-the-opentelemetry-collector`,
       `${SOC}/get-started/splunk-observability-cloud-overview/splunk-observability-cloud-overview`,
     ]
   },
@@ -644,7 +644,7 @@ export const SPLUNK_DOC_URLS = [
     certType: 'O11y Metrics User', topic: 'Introduction to Alerting on Metrics with Detectors',
     urls: [
       `${SOC}/create-alerts-detectors-and-service-level-objectives/create-alerts-and-detectors/best-practices-for-creating-detectors`,
-      `${SOC}/create-alerts-detectors-and-service-level-objectives/create-alerts-and-detectors/alerts-and-detectors`,
+      `${SOC}/create-alerts-detectors-and-service-level-objectives/create-alerts-and-detectors/introduction-to-alerts-and-detectors`,
     ]
   },
   {
@@ -665,7 +665,7 @@ export const SPLUNK_DOC_URLS = [
     certType: 'O11y Metrics User', topic: 'Detectors for Common Use Cases',
     urls: [
       `${SOC}/create-alerts-detectors-and-service-level-objectives/create-alerts-and-detectors/best-practices-for-creating-detectors`,
-      `${SOC}/create-alerts-detectors-and-service-level-objectives/create-alerts-and-detectors/alerts-and-detectors`,
+      `${SOC}/create-alerts-detectors-and-service-level-objectives/create-alerts-and-detectors/introduction-to-alerts-and-detectors`,
     ]
   },
 

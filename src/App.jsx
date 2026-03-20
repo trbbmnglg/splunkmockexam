@@ -393,6 +393,27 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
 
     setLastValidationLog(validationLog);
 
+    // ── NEW: persist generation trace to D1 ──────────────────────────
+    const BASE_URL = import.meta.env.MODE === 'development'
+      ? '/api'
+      : 'https://splunkmockexam.gtaad-innovations.com/api';
+    const { getUserId } = await import('./utils/agentAdaptive.js');
+    fetch(`${BASE_URL}/traces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: getUserId(),
+        examType,
+        trace: {
+          ...trace,
+          questionCount:      validatedQuestions.length,
+          validationCycles:   validationLog.length,
+          validationFailures: validationLog.reduce((s, c) => s + c.failureCount, 0),
+          ragPassageCount:    passages.length,
+        }
+      })
+    }).catch(() => {});
+
     const randomizedQuestions = validatedQuestions.map(q => {
       const safeQuestion = typeof q.question === 'string' ? q.question : JSON.stringify(q?.question || 'Missing question text');
       const safeAnswer   = typeof q.answer   === 'string' ? q.answer   : JSON.stringify(q?.answer   || 'Missing answer text');

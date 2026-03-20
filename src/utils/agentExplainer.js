@@ -4,14 +4,14 @@
  * Generates a concise, doc-grounded explanation for a single wrong answer.
  * Called lazily — only when the user clicks "Why?" on a specific question.
  *
- * RAG grounding (new):
+ * RAG grounding:
  *   Before calling the LLM, retrieves the most relevant Splunk doc passage
  *   from Vectorize via /api/retrieve for this topic. The passage is injected
  *   directly into the explanation prompt so the answer is anchored to real
  *   documentation text, not just LLM memory.
  *   Falls back gracefully to LLM-only if retrieval fails or returns nothing.
  *
- * Depth escalation (existing):
+ * Depth escalation:
  *   1 miss  → basic
  *   2 misses → detailed
  *   3+ misses → first-principles with analogy
@@ -24,9 +24,6 @@ const BASE_URL = typeof import.meta !== 'undefined' && import.meta.env?.MODE ===
   : 'https://splunkmockexam.gtaad-innovations.com/api';
 
 // ─── retrievePassageForTopic ──────────────────────────────────────────────────
-// Queries /api/retrieve for the single most relevant passage for this
-// topic + examType combination. Returns the passage text + URL, or null
-// if retrieval fails, times out, or returns no useful results.
 async function retrievePassageForTopic(topic, examType) {
   try {
     const params = new URLSearchParams({
@@ -41,18 +38,45 @@ async function retrievePassageForTopic(topic, examType) {
     const data = await res.json();
     const passages = data.passages || [];
 
-    // Pick the highest-scoring passage — they're already sorted by score desc
     const best = passages.find(p => p.text && p.text.trim().length > 50);
     if (!best) return null;
 
     return {
-      text: best.text.slice(0, 800).trim(),  // cap at 800 chars to stay within token budget
-      url:  best.url || '',
+      text:  best.text.slice(0, 800).trim(),
+      url:   best.url || '',
       score: best.score,
     };
   } catch {
-    // Timeout or network error — non-fatal, explainer continues without RAG
     return null;
+  }
+}
+
+// ─── safeJsonParse ────────────────────────────────────────────────────────────
+// JSON.parse is strict: literal newlines/tabs inside string values are invalid.
+// Models sometimes emit these anyway. This function sanitizes before parsing.
+function safeJsonParse(text) {
+  // Step 1: strip markdown fences
+  let cleaned = text.replace(/```json|```/gi, '').trim();
+
+  // Step 2: extract the JSON object boundaries
+  const start = cleaned.indexOf('{');
+  const end   = cleaned.lastIndexOf('}');
+  if (start === -1 || end === -1) throw new Error('No JSON object in response');
+  cleaned = cleaned.substring(start, end + 1);
+
+  // Step 3: try parsing as-is (fast path — usually works)
+  try {
+    return JSON.parse(cleaned);
+  } catch (_) {
+    // Step 4: sanitize bare control characters inside string values.
+    // These are never valid in JSON strings and models occasionally emit them.
+    const sanitized = cleaned
+      .replace(/\r\n/g, '\\n')  // Windows line endings
+      .replace(/\r/g, '\\n')    // Old Mac line endings
+      .replace(/\n/g, '\\n')    // Unix line endings
+      .replace(/\t/g, '\\t');   // Tabs
+
+    return JSON.parse(sanitized);
   }
 }
 
@@ -103,21 +127,12 @@ export const fetchExplanation = async (
 - Keep it to 5-6 sentences — this is a persistent gap that needs a lasting explanation`,
   };
 
-  // ── RAG: retrieve doc passage for this topic ────────────────────────────────
-  // Run in parallel with nothing (just await it) — it's fast enough that the
-  // added latency is worth the grounding benefit. If it fails, ragPassage = null.
+  // ── RAG retrieval ───────────────────────────────────────────────────────────
   const ragPassage = await retrievePassageForTopic(topic, examType);
 
   // ── Build prompt ────────────────────────────────────────────────────────────
   const ragSection = ragPassage
-    ? `\nREFERENCE DOCUMENTATION — Ground your explanation in this official Splunk doc excerpt:
----
-${ragPassage.text}
----
-Source: ${ragPassage.url || docSource || 'Splunk documentation'}
-
-Your explanation MUST be consistent with this documentation. If the correct answer is supported by
-the passage above, reference what the doc says. Do not contradict the documentation.\n`
+    ? `\nREFERENCE DOCUMENTATION — Ground your explanation in this official Splunk doc excerpt:\n---\n${ragPassage.text}\n---\nSource: ${ragPassage.url || docSource || 'Splunk documentation'}\n\nYour explanation MUST be consistent with this documentation. If the correct answer is supported by the passage above, reference what the doc says. Do not contradict the documentation.\n`
     : (docSource
         ? `\nNote: This question is sourced from: ${docSource}\n`
         : '');
@@ -145,7 +160,8 @@ Do NOT be condescending. Do NOT repeat the question text verbatim.
 ${ragPassage ? 'Reference the documentation excerpt above where relevant.' : ''}
 End with one memorable takeaway sentence starting with "Remember:".
 
-Return ONLY valid JSON, no markdown:
+CRITICAL: Return ONLY valid JSON. Every string value must be on a single line — do not put literal newline characters inside any string value. Use \\n if you need line breaks within a string.
+
 {
   "explanation": "string — explanation at ${depthTier} depth",
   "keyTakeaway": "string — one memorable sentence starting with 'Remember:'",
@@ -164,7 +180,7 @@ Return ONLY valid JSON, no markdown:
         messages: [
           {
             role: 'system',
-            content: 'You are a Splunk certification study coach. Return only valid JSON, no markdown fences.'
+            content: 'You are a Splunk certification study coach. Return only valid JSON with no markdown fences. All string values must be single-line — never include literal newline characters inside a JSON string value.',
           },
           { role: 'user', content: prompt }
         ],
@@ -173,26 +189,21 @@ Return ONLY valid JSON, no markdown:
       })
     }, 2, 15000);
 
-    let text = response.choices?.[0]?.message?.content || '{}';
-    text = text.replace(/```json|```/g, '').trim();
+    const text = response.choices?.[0]?.message?.content || '{}';
 
-    const start = text.indexOf('{');
-    const end   = text.lastIndexOf('}');
-    if (start === -1 || end === -1) throw new Error('No JSON object in response');
+    // safeJsonParse handles unescaped control characters that models sometimes
+    // emit inside JSON string values, causing standard JSON.parse to throw.
+    const parsed = safeJsonParse(text);
 
-    const parsed = JSON.parse(text.substring(start, end + 1));
-
-    // Use the RAG passage URL as the definitive doc link if available,
-    // falling back to the docSource from the question, then topic search
     const resolvedDocUrl = ragPassage?.url || docSource || '';
 
     return {
-      explanation:    parsed.explanation    || 'Explanation unavailable.',
-      keyTakeaway:    parsed.keyTakeaway    || '',
-      docHint:        parsed.docHint        || `Review: Splunk Docs → ${topic}`,
-      docSource:      resolvedDocUrl,         // overrides the prop in WrongAnswerCard
+      explanation: parsed.explanation || 'Explanation unavailable.',
+      keyTakeaway: parsed.keyTakeaway || '',
+      docHint:     parsed.docHint     || `Review: Splunk Docs → ${topic}`,
+      docSource:   resolvedDocUrl,
       depthTier,
-      ragGrounded:    !!ragPassage,           // flag so UI can optionally indicate grounding
+      ragGrounded: !!ragPassage,
     };
   } catch (err) {
     console.error('[Explainer] Failed:', err.message);

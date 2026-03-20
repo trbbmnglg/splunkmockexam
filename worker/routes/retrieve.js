@@ -73,7 +73,7 @@ export async function handleRetrieve(request, env, ok, err) {
     const queryOptions = {
       topK:           TOP_K_VECTORIZE,
       returnMetadata: 'all',
-      filter:         { certType: { $eq: examType } },
+      filter:         { cert: { $eq: examType } },
     };
 
     let vectorResults = await env.VECTORIZE.query(queryVector, queryOptions);

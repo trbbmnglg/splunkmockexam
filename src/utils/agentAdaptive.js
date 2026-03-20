@@ -2,26 +2,27 @@
  * agentAdaptive.js — Layer 3: Adaptive Difficulty Agent
  *
  * Rolling trend detection (v2):
- *   - D1 now stores score_history (last 7 session scores) per topic.
- *   - computeRollingTrend() replaces the old two-point delta.
- *   - localStorage profiles that predate this feature fall back gracefully
- *     to the legacy two-point delta until D1 sync populates scoreHistory.
+ *   - D1 stores score_history (last 7 session scores) per topic.
+ *   - computeRollingTrend() uses half-split average comparison.
  *
  * Exam-readiness score (v3):
- *   - computeExamReadiness() returns a 0-100 score weighted against blueprint
- *     percentages. Unseen topics contribute 50% (neutral, not penalizing).
- *     Also returns a breakdown array and a qualitative label.
+ *   - computeExamReadiness() returns a 0-100 weighted score against blueprint.
+ *   - Graduated topics show 100% accuracy in the readiness breakdown.
  *
- * API endpoints used:
- * GET  /api/profile?userId=&examType=  → read profile
- * POST /api/profile                    → write profile after exam
- * POST /api/wrong-answers              → persist missed questions
- * GET  /api/community?examType=        → community heatmap
+ * Topic confidence graduation (v4):
+ *   - A topic is graduated when the last 4 consecutive sessions all score ≥ 80%.
+ *   - Server computes and stores graduated_at in D1.
+ *   - buildAdaptiveContext() gives graduated topics a floor of 1 question
+ *     instead of adaptive weighting — still covered, no longer over-weighted.
+ *   - Un-graduation is automatic: if latest score drops below threshold,
+ *     graduated_at is cleared server-side and the topic re-enters weighting.
  */
 
-const LOCAL_KEY   = 'splunkAdaptiveProfile';
-const USER_ID_KEY = 'splunkUserId';
-const SCORE_HISTORY_WINDOW = 7;
+const LOCAL_KEY              = 'splunkAdaptiveProfile';
+const USER_ID_KEY            = 'splunkUserId';
+const SCORE_HISTORY_WINDOW   = 7;
+const GRADUATION_WINDOW      = 4;
+const GRADUATION_THRESHOLD   = 80;
 
 const BASE_URL = import.meta.env.MODE === 'development'
   ? '/api'
@@ -44,12 +45,12 @@ export const getUserId = () => {
 // ─── Rolling trend from score history ────────────────────────────────────────
 const computeRollingTrend = (scoreHistory, lastScore, prevScore) => {
   if (Array.isArray(scoreHistory) && scoreHistory.length >= 2) {
-    const mid = Math.floor(scoreHistory.length / 2);
-    const older  = scoreHistory.slice(0, mid);
-    const recent = scoreHistory.slice(mid);
+    const mid       = Math.floor(scoreHistory.length / 2);
+    const older     = scoreHistory.slice(0, mid);
+    const recent    = scoreHistory.slice(mid);
     const avgOlder  = older.reduce((s, v) => s + v, 0) / older.length;
     const avgRecent = recent.reduce((s, v) => s + v, 0) / recent.length;
-    const delta = avgRecent - avgOlder;
+    const delta     = avgRecent - avgOlder;
     if (delta > 10)  return 'improving';
     if (delta < -10) return 'declining';
     return 'stable';
@@ -60,6 +61,19 @@ const computeRollingTrend = (scoreHistory, lastScore, prevScore) => {
     return 'stable';
   }
   return 'new';
+};
+
+// ─── Client-side graduation check (mirrors server logic) ─────────────────────
+// Used to update localStorage immediately after a session without waiting
+// for the next D1 sync. Server is authoritative; this keeps localStorage fresh.
+const computeGraduatedAt = (scoreHistory, existingGraduatedAt, now) => {
+  if (!Array.isArray(scoreHistory) || scoreHistory.length < GRADUATION_WINDOW) return null;
+  const latestScore = scoreHistory[scoreHistory.length - 1];
+  if (latestScore < GRADUATION_THRESHOLD) return null;
+  const window    = scoreHistory.slice(-GRADUATION_WINDOW);
+  const allStrong = window.every(s => s >= GRADUATION_THRESHOLD);
+  if (allStrong) return existingGraduatedAt || now;
+  return null;
 };
 
 // ─── Append score to local history, capped at window size ─────────────────────
@@ -91,9 +105,9 @@ const saveLocalProfile = (profile) => {
 export const clearProfile = (examType) => {
   const userId = getUserId();
   fetch(`${BASE_URL}/profile`, {
-    method: 'DELETE',
+    method:  'DELETE',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, examType })
+    body:    JSON.stringify({ userId, examType })
   }).catch(() => {});
   const local = loadLocalProfile();
   if (examType) delete local[examType];
@@ -122,7 +136,8 @@ export const loadProfile = async (examType) => {
               errors:                t.errors,
               lastScore:             t.lastScore,
               trend:                 t.trend,
-              scoreHistory:          t.scoreHistory || [],
+              scoreHistory:          t.scoreHistory          || [],
+              graduatedAt:           t.graduatedAt           || null,
               validationFailureRate: t.validationFailureRate ?? 0,
             }])
           ),
@@ -134,7 +149,7 @@ export const loadProfile = async (examType) => {
   } catch (err) {
     console.warn('[Adaptive] D1 read failed, using localStorage:', err.message);
   }
-  const local = loadLocalProfile();
+  const local       = loadLocalProfile();
   const examProfile = local[examType];
   if (!examProfile) return { sessions: 0, lastUpdated: null, topics: {} };
   return examProfile;
@@ -172,6 +187,7 @@ const computeTopicValidationFailures = (validationLog, questions) => {
 // ─── Update profile after exam ────────────────────────────────────────────────
 export const updateProfile = async (examType, questions, userAnswers, validationLog = []) => {
   const userId = getUserId();
+  const now    = new Date().toISOString();
 
   const sessionTopicStats = {};
   questions.forEach((q, idx) => {
@@ -182,7 +198,7 @@ export const updateProfile = async (examType, questions, userAnswers, validation
   });
 
   const topicValidationFailures = computeTopicValidationFailures(validationLog, questions);
-  const overallFailureRate = validationLog[0]?.failureRate ?? 0;
+  const overallFailureRate      = validationLog[0]?.failureRate ?? 0;
 
   const sessionResults = Object.entries(sessionTopicStats).map(([topic, stats]) => ({
     topic,
@@ -192,12 +208,14 @@ export const updateProfile = async (examType, questions, userAnswers, validation
     validationFailureRate: topicValidationFailures[topic] ?? 0,
   }));
 
+  // D1 write (non-blocking) — server handles graduation authoritatively
   fetch(`${BASE_URL}/profile`, {
-    method: 'POST',
+    method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, examType, sessionResults, overallFailureRate })
+    body:    JSON.stringify({ userId, examType, sessionResults, overallFailureRate })
   }).catch(err => console.warn('[Adaptive] D1 write failed:', err.message));
 
+  // Wrong answers write (non-blocking)
   const wrongAnswers = questions
     .map((q, idx) => ({ q, idx }))
     .filter(({ q, idx }) => userAnswers[idx] !== q.correctIndex)
@@ -209,17 +227,19 @@ export const updateProfile = async (examType, questions, userAnswers, validation
 
   if (wrongAnswers.length > 0) {
     fetch(`${BASE_URL}/wrong-answers`, {
-      method: 'POST',
+      method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, examType, wrongAnswers })
+      body:    JSON.stringify({ userId, examType, wrongAnswers })
     }).catch(err => console.warn('[Adaptive] Wrong answers write failed:', err.message));
   }
 
+  // localStorage write — mirror D1 graduation logic client-side so UI is
+  // immediately up to date without waiting for the next loadProfile() call
   const local = loadLocalProfile();
   if (!local[examType]) local[examType] = { sessions: 0, lastUpdated: null, topics: {} };
-  const examProfile = local[examType];
-  examProfile.sessions += 1;
-  examProfile.lastUpdated = new Date().toISOString();
+  const examProfile       = local[examType];
+  examProfile.sessions   += 1;
+  examProfile.lastUpdated = now;
 
   for (const { topic, attempts, errors, sessionScore, validationFailureRate } of sessionResults) {
     const prev = examProfile.topics[topic];
@@ -231,11 +251,13 @@ export const updateProfile = async (examType, questions, userAnswers, validation
         lastScore:             sessionScore,
         trend:                 'new',
         scoreHistory:          [sessionScore],
+        graduatedAt:           null,
         validationFailureRate,
       };
     } else {
       const updatedHistory = appendToHistory(prev.scoreHistory || [], sessionScore);
-      const newTrend = computeRollingTrend(updatedHistory, sessionScore, prev.lastScore ?? 50);
+      const newTrend       = computeRollingTrend(updatedHistory, sessionScore, prev.lastScore ?? 50);
+      const newGraduatedAt = computeGraduatedAt(updatedHistory, prev.graduatedAt, now);
 
       const prevVfr = prev.validationFailureRate ?? 0;
       const newVfr  = prevVfr > 0
@@ -248,6 +270,7 @@ export const updateProfile = async (examType, questions, userAnswers, validation
         lastScore:             sessionScore,
         trend:                 newTrend,
         scoreHistory:          updatedHistory,
+        graduatedAt:           newGraduatedAt,
         validationFailureRate: newVfr,
       };
     }
@@ -258,23 +281,8 @@ export const updateProfile = async (examType, questions, userAnswers, validation
 };
 
 // ─── Exam-readiness score ─────────────────────────────────────────────────────
-// Returns a 0-100 readiness score weighted against official blueprint percentages.
-//
-// Algorithm:
-//   For each blueprint topic, accuracy = 100 - errorRate (from cumulative profile).
-//   Unseen topics (no profile data) default to 50% — neutral, not penalizing.
-//   readiness = Σ (accuracy_i × weight_i)  where weight_i = topic.pct / 100
-//
-// Returns:
-//   score       — 0-100 weighted readiness number
-//   label       — 'Not Ready' | 'Getting There' | 'Almost Ready' | 'Ready'
-//   labelColor  — Tailwind text color class
-//   labelBg     — Tailwind bg+border class for the badge
-//   coveredPct  — % of blueprint weight actually attempted at least once
-//   breakdown   — per-topic array for drill-down display
-//   sessions    — total sessions for this exam type
-//
-// blueprintTopics: EXAM_BLUEPRINTS[examType].topics  — [{ name, pct }, ...]
+// Graduated topics contribute 100% accuracy to the readiness score — they are
+// fully mastered and no longer drag the score down.
 export const computeExamReadiness = (examType, blueprintTopics) => {
   if (!blueprintTopics || blueprintTopics.length === 0) return null;
 
@@ -286,26 +294,30 @@ export const computeExamReadiness = (examType, blueprintTopics) => {
   let coveredWeight = 0;
 
   const breakdown = blueprintTopics.map(({ name, pct }) => {
-    const weight  = pct / 100;
-    const profile = topicStats[name];
+    const weight   = pct / 100;
+    const profile  = topicStats[name];
+    const isGrad   = !!(profile?.graduatedAt);
 
     const errorRate = profile && profile.attempts > 0
       ? Math.round((profile.errors / profile.attempts) * 100)
-      : null; // null = never attempted
+      : null;
 
-    const accuracy     = errorRate !== null ? Math.max(0, 100 - errorRate) : 50;
+    // Graduated topics are treated as 100% accurate
+    const accuracy     = isGrad ? 100 : (errorRate !== null ? Math.max(0, 100 - errorRate) : 50);
     const contribution = accuracy * weight;
 
     weightedSum   += contribution;
-    if (errorRate !== null) coveredWeight += weight;
+    if (errorRate !== null || isGrad) coveredWeight += weight;
 
     return {
       name,
       pct,
-      accuracy,            // 0-100, or 50 if unseen
-      errorRate,           // null if never attempted
-      attempted: errorRate !== null,
-      trend:     profile?.trend       || 'new',
+      accuracy,
+      errorRate,
+      attempted:   errorRate !== null || isGrad,
+      graduated:   isGrad,
+      graduatedAt: profile?.graduatedAt || null,
+      trend:       profile?.trend        || 'new',
       scoreHistory: profile?.scoreHistory || [],
     };
   });
@@ -331,6 +343,8 @@ export const computeExamReadiness = (examType, blueprintTopics) => {
     score >= 45 ? 'bg-amber-50 border-amber-200'     :
                   'bg-red-50 border-red-200';
 
+  const graduatedCount = breakdown.filter(t => t.graduated).length;
+
   return {
     score,
     label,
@@ -338,13 +352,16 @@ export const computeExamReadiness = (examType, blueprintTopics) => {
     labelBg,
     coveredPct,
     breakdown,
+    graduatedCount,
     sessions: examProfile?.sessions || 0,
   };
 };
 
 // ─── Build adaptive prompt context ───────────────────────────────────────────
+// Graduated topics receive exactly 1 question (floor allocation) instead of
+// the normal adaptive weighting. This frees up allocation for weak topics.
 export const buildAdaptiveContext = (examType, numQuestions, blueprintTopics) => {
-  const local = loadLocalProfile();
+  const local       = loadLocalProfile();
   const examProfile = local[examType];
   if (!examProfile || examProfile.sessions === 0 || Object.keys(examProfile.topics).length === 0) {
     return { adaptivePromptSection: '', adaptiveSummary: null };
@@ -353,41 +370,61 @@ export const buildAdaptiveContext = (examType, numQuestions, blueprintTopics) =>
   const scored = Object.entries(examProfile.topics).map(([name, stats]) => {
     const errorRate     = stats.attempts > 0 ? stats.errors / stats.attempts : 0;
     const recencyFactor = stats.trend === 'declining' ? 1.4 : stats.trend === 'improving' ? 0.7 : 1.0;
+    const isGraduated   = !!(stats.graduatedAt);
     return {
       name,
       errorRate:             Math.round(errorRate * 100),
       trend:                 stats.trend,
-      priority:              errorRate * recencyFactor,
+      priority:              isGraduated ? -1 : errorRate * recencyFactor, // graduated always sort last
       lastScore:             stats.lastScore,
       scoreHistory:          stats.scoreHistory || [],
       validationFailureRate: stats.validationFailureRate ?? 0,
+      graduated:             isGraduated,
+      graduatedAt:           stats.graduatedAt || null,
     };
   }).sort((a, b) => b.priority - a.priority);
 
-  const weakTopics   = scored.filter(t => t.errorRate > 40);
-  const strongTopics = scored.filter(t => t.errorRate <= 20 && t.trend !== 'new');
-  const highValidationFailureTopics = scored.filter(t => t.validationFailureRate >= 30);
+  const graduatedTopics = scored.filter(t => t.graduated);
+  const activeTopics    = scored.filter(t => !t.graduated);
+  const weakTopics      = activeTopics.filter(t => t.errorRate > 40);
+  const strongTopics    = activeTopics.filter(t => t.errorRate <= 20 && t.trend !== 'new');
+  const highValidationFailureTopics = activeTopics.filter(t => t.validationFailureRate >= 30);
 
-  if (weakTopics.length === 0 && strongTopics.length === 0 && highValidationFailureTopics.length === 0) {
+  if (activeTopics.length === 0 && graduatedTopics.length === 0) {
     return { adaptivePromptSection: '', adaptiveSummary: null };
   }
 
-  const baseWeight   = numQuestions / Math.max(scored.length, 1);
-  const distribution = scored.map(t => {
-    let count;
-    if (t.errorRate > 60)                                  count = Math.ceil(baseWeight * 1.8);
-    else if (t.errorRate > 40)                             count = Math.ceil(baseWeight * 1.4);
-    else if (t.errorRate <= 20 && t.trend === 'improving') count = Math.floor(baseWeight * 0.6);
-    else if (t.errorRate <= 20)                            count = Math.floor(baseWeight * 0.8);
-    else                                                   count = Math.round(baseWeight);
-    return { ...t, adaptiveCount: Math.max(1, count) };
-  });
+  // Graduated topics: floor of 1 question each
+  const graduatedAllocation = graduatedTopics.length; // 1 per graduated topic
+  const remainingQuestions  = Math.max(1, numQuestions - graduatedAllocation);
 
+  // Active topics share the remaining budget
+  const baseWeight   = remainingQuestions / Math.max(activeTopics.length, 1);
+  const distribution = [
+    // Active topics — normal adaptive weighting on remaining budget
+    ...activeTopics.map(t => {
+      let count;
+      if (t.errorRate > 60)                                  count = Math.ceil(baseWeight * 1.8);
+      else if (t.errorRate > 40)                             count = Math.ceil(baseWeight * 1.4);
+      else if (t.errorRate <= 20 && t.trend === 'improving') count = Math.floor(baseWeight * 0.6);
+      else if (t.errorRate <= 20)                            count = Math.floor(baseWeight * 0.8);
+      else                                                   count = Math.round(baseWeight);
+      return { ...t, adaptiveCount: Math.max(1, count) };
+    }),
+    // Graduated topics — exactly 1 question each
+    ...graduatedTopics.map(t => ({ ...t, adaptiveCount: 1 })),
+  ];
+
+  // Adjust active topics to hit exact total
   let total = distribution.reduce((s, t) => s + t.adaptiveCount, 0);
   let i = 0;
-  while (total < numQuestions) { distribution[i % distribution.length].adaptiveCount++; total++; i++; }
+  const activeIndices = distribution.map((t, idx) => (!t.graduated ? idx : -1)).filter(idx => idx >= 0);
+  while (total < numQuestions && activeIndices.length > 0) {
+    distribution[activeIndices[i % activeIndices.length]].adaptiveCount++;
+    total++; i++;
+  }
   while (total > numQuestions) {
-    const idx = distribution.slice().reverse().findIndex(t => t.adaptiveCount > 1);
+    const idx = distribution.slice().reverse().findIndex(t => !t.graduated && t.adaptiveCount > 1);
     if (idx >= 0) { distribution[distribution.length - 1 - idx].adaptiveCount--; total--; }
     else break;
   }
@@ -396,8 +433,14 @@ export const buildAdaptiveContext = (examType, numQuestions, blueprintTopics) =>
     `  - "${t.name}" (${t.errorRate}% error rate, trend: ${t.trend}, sessions tracked: ${t.scoreHistory.length})`
   ).join('\n');
 
+  const graduatedList = graduatedTopics.length > 0
+    ? `\nGraduated topics (mastered — receiving minimum 1 question each):\n${
+        graduatedTopics.map(t => `  - "${t.name}" (graduated ${new Date(t.graduatedAt).toLocaleDateString()})`).join('\n')
+      }`
+    : '';
+
   const distList = distribution.map(t =>
-    `  - "${t.name}": ${t.adaptiveCount} question${t.adaptiveCount !== 1 ? 's' : ''}`
+    `  - "${t.name}": ${t.adaptiveCount} question${t.adaptiveCount !== 1 ? 's' : ''}${t.graduated ? ' (mastered)' : ''}`
   ).join('\n');
 
   const validationWarning = highValidationFailureTopics.length > 0
@@ -421,8 +464,8 @@ Based on their rolling performance history (up to last ${SCORE_HISTORY_WINDOW} s
 
 Weak areas requiring extra focus (${weakTopics.length} topic${weakTopics.length !== 1 ? 's' : ''}):
 ${weakList || '  (none identified yet)'}
-
-ADAPTIVE QUESTION DISTRIBUTION — follow these counts instead of the blueprint defaults:
+${graduatedList}
+ADAPTIVE QUESTION DISTRIBUTION — follow these counts exactly:
 ${distList}
 
 For weak topics (error rate > 40%):
@@ -430,25 +473,26 @@ For weak topics (error rate > 40%):
 - Do NOT re-ask questions they have likely already seen
 - Slightly increase conceptual depth to reinforce understanding
 
-For strong topics (error rate ≤ 20%, improving trend):
-- Maintain coverage but reduce count as shown above
+For mastered/graduated topics (1 question each):
+- Ask a single representative question to maintain recall
+- Do not over-focus — this topic is already strong
 ${validationWarning}`,
     adaptiveSummary: {
-      sessions:    examProfile.sessions,
-      weakTopics:  weakTopics.map(t => ({ name: t.name, errorRate: t.errorRate, trend: t.trend, scoreHistory: t.scoreHistory })),
-      strongTopics: strongTopics.map(t => ({ name: t.name, errorRate: t.errorRate, trend: t.trend, scoreHistory: t.scoreHistory })),
+      sessions:       examProfile.sessions,
+      weakTopics:     weakTopics.map(t  => ({ name: t.name,  errorRate: t.errorRate, trend: t.trend, scoreHistory: t.scoreHistory })),
+      strongTopics:   strongTopics.map(t => ({ name: t.name, errorRate: t.errorRate, trend: t.trend, scoreHistory: t.scoreHistory })),
+      graduatedTopics: graduatedTopics.map(t => ({ name: t.name, graduatedAt: t.graduatedAt })),
       highValidationFailureTopics: highValidationFailureTopics.map(t => ({
-        name: t.name,
-        validationFailureRate: t.validationFailureRate,
+        name: t.name, validationFailureRate: t.validationFailureRate,
       })),
-      distribution: distribution.map(t => ({ name: t.name, count: t.adaptiveCount })),
+      distribution: distribution.map(t => ({ name: t.name, count: t.adaptiveCount, graduated: t.graduated })),
     },
   };
 };
 
 // ─── UI helpers ───────────────────────────────────────────────────────────────
 export const getProfileSummary = (examType) => {
-  const local = loadLocalProfile();
+  const local       = loadLocalProfile();
   const examProfile = local[examType];
   if (!examProfile) return null;
   const topics = Object.entries(examProfile.topics).map(([name, stats]) => ({
@@ -457,7 +501,8 @@ export const getProfileSummary = (examType) => {
     attempts:              stats.attempts,
     errors:                stats.errors,
     trend:                 stats.trend,
-    scoreHistory:          stats.scoreHistory || [],
+    scoreHistory:          stats.scoreHistory  || [],
+    graduatedAt:           stats.graduatedAt   || null,
     validationFailureRate: stats.validationFailureRate ?? 0,
     errorRate:             stats.attempts > 0 ? Math.round((stats.errors / stats.attempts) * 100) : 0,
   })).sort((a, b) => b.errorRate - a.errorRate);
@@ -485,8 +530,8 @@ export const getWrongAnswerBank = async (examType, dueOnly = false) => {
 export const clearReviewedAnswers = (examType, questionHashes) => {
   const userId = getUserId();
   fetch(`${BASE_URL}/wrong-answers`, {
-    method: 'DELETE',
+    method:  'DELETE',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, examType, questionHashes })
+    body:    JSON.stringify({ userId, examType, questionHashes })
   }).catch(err => console.warn('[Adaptive] Clear reviewed answers failed:', err.message));
 };

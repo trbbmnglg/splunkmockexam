@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronUp, ChevronDown, CheckCircle, XCircle, AlertTriangle, BookOpen, Star, ExternalLink } from 'lucide-react';
+import { ChevronUp, ChevronDown, CheckCircle, XCircle, AlertTriangle, BookOpen, Star, ExternalLink, Zap } from 'lucide-react';
 import { fetchExplanation } from '../utils/agentExplainer';
 
 export default function WrongAnswerCard({
@@ -24,7 +24,7 @@ export default function WrongAnswerCard({
     setState('loading');
     try {
       const result = await fetchExplanation(
-        { question, yourAnswer, correctAnswer, allOptions, topic, examType, blueprintLevel, timesMissed },
+        { question, yourAnswer, correctAnswer, allOptions, topic, examType, blueprintLevel, timesMissed, docSource },
         apiKey
       );
       setExplanation(result);
@@ -46,12 +46,16 @@ export default function WrongAnswerCard({
     doFetch();
   };
 
+  // Use the URL returned by the explainer (may be RAG-retrieved) or fall back to prop
+  const docsUrl = explanation?.docSource || docSource ||
+    `https://docs.splunk.com/Documentation/Splunk/latest/Search?q=${encodeURIComponent(topic)}`;
+
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
       <div className="p-4 bg-white">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-grow min-w-0">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Q{questionIndex + 1}</span>
               <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium truncate">{topic}</span>
               {timesMissed >= 3 && (
@@ -102,7 +106,7 @@ export default function WrongAnswerCard({
         <div className="px-4 pb-4 pt-1 bg-indigo-50/50 border-t border-slate-100">
           <div className="flex items-center gap-2 text-indigo-600 text-sm">
             <div className="w-4 h-4 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin flex-shrink-0" />
-            <span>Generating explanation...</span>
+            <span>Retrieving docs &amp; generating explanation...</span>
           </div>
         </div>
       )}
@@ -119,22 +123,33 @@ export default function WrongAnswerCard({
 
       {open && state === 'done' && explanation && (
         <div className="px-4 pb-4 pt-3 bg-gradient-to-b from-indigo-50/60 to-white border-t border-indigo-100 space-y-3 animate-fade-in">
+
+          {/* RAG grounded indicator */}
+          {explanation.ragGrounded && (
+            <div className="flex items-center gap-1.5 text-xs text-teal-700 bg-teal-50 border border-teal-100 rounded-md px-2.5 py-1.5">
+              <Zap className="w-3 h-3 flex-shrink-0" />
+              Grounded in official Splunk documentation
+            </div>
+          )}
+
           <p className="text-sm text-slate-700 leading-relaxed">{explanation.explanation}</p>
+
           {explanation.keyTakeaway && (
             <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
               <Star className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
               <p className="text-xs font-medium text-amber-800 leading-relaxed">{explanation.keyTakeaway}</p>
             </div>
           )}
+
           {explanation.docHint && (
             <div className="flex items-center gap-2 text-xs text-slate-500">
               <BookOpen className="w-3.5 h-3.5 flex-shrink-0" />
               <span>{explanation.docHint}</span>
               <a
-                href={docSource || `https://docs.splunk.com/Documentation/Splunk/latest/Search?q=${encodeURIComponent(topic)}`}
+                href={docsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="ml-auto flex items-center gap-1 text-pink-600 hover:text-pink-800 font-semibold transition-colors"
+                className="ml-auto flex items-center gap-1 text-pink-600 hover:text-pink-800 font-semibold transition-colors flex-shrink-0"
               >
                 Open Docs <ExternalLink className="w-3 h-3" />
               </a>

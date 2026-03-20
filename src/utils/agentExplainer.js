@@ -38,7 +38,7 @@ async function retrievePassageForTopic(topic, examType) {
     const data = await res.json();
     const passages = data.passages || [];
 
-    const best = passages.find(p => p.text && p.text.trim().length > 50);
+    const best = passages.find(p => p.text && p.text.trim().length > 50 && !p.text.includes('googletagmanager') && !p.text.includes('display:none'));
     if (!best) return null;
 
     return {

@@ -3,13 +3,56 @@
  *
  * GET  /api/profile?userId=xxx&examType=yyy
  *   → Returns the full topic profile for this user + exam
- *   → Shape: { sessions, lastUpdated, topics: { [name]: { attempts, errors, lastScore, trend } } }
+ *   → Shape: { sessions, lastUpdated, topics: { [name]: { attempts, errors, lastScore, trend, scoreHistory } } }
  *
  * POST /api/profile
  *   → Body: { userId, examType, sessionResults: [ { topic, attempts, errors, sessionScore } ] }
- *   → Upserts each topic row, recalculates trend, increments sessions
+ *   → Upserts each topic row, appends sessionScore to score_history (capped at 7),
+ *     recalculates trend using rolling simple-direction algorithm, increments sessions
  *   → Also updates community_stats (anonymized aggregate)
  */
+
+const SCORE_HISTORY_WINDOW = 7;
+
+// ─── Rolling trend from score history ────────────────────────────────────────
+// Simple direction: compare the average of the latest half against the older half.
+// Needs at least 2 data points. Returns 'new' if insufficient data.
+//
+// Example with 6 scores [50, 55, 60, 58, 70, 75]:
+//   older half avg = (50+55+60) / 3 = 55
+//   recent half avg = (58+70+75) / 3 = 67.7
+//   delta = +12.7 → 'improving'
+function computeTrend(scoreHistory) {
+  if (!Array.isArray(scoreHistory) || scoreHistory.length < 2) return 'new';
+
+  const mid = Math.floor(scoreHistory.length / 2);
+  const older = scoreHistory.slice(0, mid);
+  const recent = scoreHistory.slice(mid);
+
+  const avgOlder = older.reduce((s, v) => s + v, 0) / older.length;
+  const avgRecent = recent.reduce((s, v) => s + v, 0) / recent.length;
+  const delta = avgRecent - avgOlder;
+
+  if (delta > 10) return 'improving';
+  if (delta < -10) return 'declining';
+  return 'stable';
+}
+
+// ─── Append score to history, capped at window size ───────────────────────────
+function appendScore(existingHistoryJson, newScore) {
+  let history = [];
+  try {
+    history = JSON.parse(existingHistoryJson || '[]');
+    if (!Array.isArray(history)) history = [];
+  } catch {
+    history = [];
+  }
+  history.push(newScore);
+  if (history.length > SCORE_HISTORY_WINDOW) {
+    history = history.slice(history.length - SCORE_HISTORY_WINDOW);
+  }
+  return JSON.stringify(history);
+}
 
 export async function handleProfile(request, env, ok, err) {
   if (request.method === 'GET') {
@@ -34,9 +77,8 @@ async function getProfile(request, env, ok, err) {
     return err('userId and examType are required', 400);
   }
 
-  // Get all topic rows for this user + exam
   const rows = await env.DB.prepare(
-    `SELECT topic, attempts, errors, last_score, trend, sessions, last_updated
+    `SELECT topic, attempts, errors, last_score, trend, score_history, sessions, last_updated
      FROM topic_profiles
      WHERE user_id = ? AND exam_type = ?
      ORDER BY errors DESC`
@@ -46,19 +88,26 @@ async function getProfile(request, env, ok, err) {
     return ok({ sessions: 0, lastUpdated: null, topics: {} });
   }
 
-  // Reconstruct the profile shape agentAdaptive.js expects
   const topics = {};
   let totalSessions = 0;
   let lastUpdated = null;
 
   for (const row of rows.results) {
+    let scoreHistory = [];
+    try {
+      scoreHistory = JSON.parse(row.score_history || '[]');
+      if (!Array.isArray(scoreHistory)) scoreHistory = [];
+    } catch {
+      scoreHistory = [];
+    }
+
     topics[row.topic] = {
-      attempts:   row.attempts,
-      errors:     row.errors,
-      lastScore:  row.last_score,
-      trend:      row.trend,
+      attempts:     row.attempts,
+      errors:       row.errors,
+      lastScore:    row.last_score,
+      trend:        row.trend,
+      scoreHistory, // expose to agentAdaptive.js for richer client-side use
     };
-    // sessions is stored per-row (same value for all rows of same user+exam)
     totalSessions = Math.max(totalSessions, row.sessions);
     if (!lastUpdated || row.last_updated > lastUpdated) {
       lastUpdated = row.last_updated;
@@ -85,35 +134,52 @@ async function postProfile(request, env, ok, err) {
 
   const now = new Date().toISOString();
 
-  // Get current session count for this user+exam (any row will do)
+  // Get current session count + score_history for each topic in one query
   const existing = await env.DB.prepare(
-    `SELECT sessions FROM topic_profiles WHERE user_id = ? AND exam_type = ? LIMIT 1`
-  ).bind(userId, examType).first();
+    `SELECT topic, sessions, score_history FROM topic_profiles
+     WHERE user_id = ? AND exam_type = ?`
+  ).bind(userId, examType).all();
 
-  const newSessionCount = (existing?.sessions ?? 0) + 1;
+  const existingMap = {};
+  let maxSessions = 0;
+  for (const row of (existing.results || [])) {
+    existingMap[row.topic] = row.score_history || '[]';
+    maxSessions = Math.max(maxSessions, row.sessions || 0);
+  }
 
-  // Upsert each topic row
+  const newSessionCount = maxSessions + 1;
+
+  // Build upsert statements — compute new score_history and trend per topic
   const statements = sessionResults.map(({ topic, attempts, errors, sessionScore }) => {
-    // Calculate trend by comparing to previous lastScore
-    // We do this in the upsert using a CASE expression
+    const prevHistoryJson = existingMap[topic] || '[]';
+    const newHistoryJson  = appendScore(prevHistoryJson, sessionScore);
+
+    // Parse the updated history to compute rolling trend
+    let newHistory = [];
+    try { newHistory = JSON.parse(newHistoryJson); } catch { newHistory = [sessionScore]; }
+    const newTrend = computeTrend(newHistory);
+
     return env.DB.prepare(`
-      INSERT INTO topic_profiles (user_id, exam_type, topic, attempts, errors, last_score, trend, sessions, last_updated)
-      VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?)
+      INSERT INTO topic_profiles
+        (user_id, exam_type, topic, attempts, errors, last_score, trend, score_history, sessions, last_updated)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, exam_type, topic) DO UPDATE SET
-        attempts     = topic_profiles.attempts + excluded.attempts,
-        errors       = topic_profiles.errors   + excluded.errors,
-        trend        = CASE
-                         WHEN excluded.last_score > topic_profiles.last_score + 10 THEN 'improving'
-                         WHEN excluded.last_score < topic_profiles.last_score - 10 THEN 'declining'
-                         ELSE 'stable'
-                       END,
-        last_score   = excluded.last_score,
-        sessions     = excluded.sessions,
-        last_updated = excluded.last_updated
-    `).bind(userId, examType, topic, attempts, errors, sessionScore, newSessionCount, now);
+        attempts      = topic_profiles.attempts + excluded.attempts,
+        errors        = topic_profiles.errors   + excluded.errors,
+        last_score    = excluded.last_score,
+        trend         = excluded.trend,
+        score_history = excluded.score_history,
+        sessions      = excluded.sessions,
+        last_updated  = excluded.last_updated
+    `).bind(
+      userId, examType, topic,
+      attempts, errors, sessionScore,
+      newTrend, newHistoryJson,
+      newSessionCount, now
+    );
   });
 
-  // Also update community stats (anonymized)
+  // Update community stats (anonymized)
   const communityStatements = sessionResults.map(({ topic, attempts, errors }) => {
     return env.DB.prepare(`
       INSERT INTO community_stats (exam_type, topic, total_attempts, total_errors, updated_at)
@@ -125,7 +191,6 @@ async function postProfile(request, env, ok, err) {
     `).bind(examType, topic, attempts, errors, now);
   });
 
-  // Execute all upserts in a single batch
   await env.DB.batch([...statements, ...communityStatements]);
 
   return ok({ success: true, sessions: newSessionCount });
@@ -144,12 +209,10 @@ async function deleteProfile(request, env, ok, err) {
   if (!userId) return err('userId is required', 400);
 
   if (examType) {
-    // Delete only this exam type's profile
     await env.DB.prepare(
       `DELETE FROM topic_profiles WHERE user_id = ? AND exam_type = ?`
     ).bind(userId, examType).run();
   } else {
-    // Delete all profiles for this user
     await env.DB.prepare(
       `DELETE FROM topic_profiles WHERE user_id = ?`
     ).bind(userId).run();

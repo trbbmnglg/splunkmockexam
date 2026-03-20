@@ -16,6 +16,10 @@ import ConfigScreen   from './components/ConfigScreen';
 import ExamScreen     from './components/ExamScreen';
 import ResultsScreen  from './components/ResultsScreen';
 
+const BASE_URL = import.meta.env.MODE === 'development'
+  ? '/api'
+  : 'https://splunkmockexam.gtaad-innovations.com/api';
+
 export default function App() {
   // ── Consent ────────────────────────────────────────────────────────────────
   const [hasConsented, setHasConsented] = useState(
@@ -90,9 +94,6 @@ export default function App() {
       const topicParams = topics.length > 0
         ? topics.map(t => `topics[]=${encodeURIComponent(t)}`).join('&')
         : '';
-      const BASE_URL = import.meta.env.MODE === 'development'
-        ? '/api'
-        : 'https://splunkmockexam.gtaad-innovations.com/api';
       const url = `${BASE_URL}/retrieve?examType=${encodeURIComponent(type)}${topicParams ? '&' + topicParams : ''}`;
       const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (res.ok) return (await res.json()).passages || [];
@@ -109,13 +110,8 @@ export default function App() {
   };
 
   // ── checkAndIncrementUsage ─────────────────────────────────────────────────
-  // Only called for shared-key users. Returns { allowed, remaining, resetAt }.
-  // Own-key users and review sessions skip this entirely.
   const checkAndIncrementUsage = async () => {
     try {
-      const BASE_URL = import.meta.env.MODE === 'development'
-        ? '/api'
-        : 'https://splunkmockexam.gtaad-innovations.com/api';
       const { getUserId } = await import('./utils/agentAdaptive.js');
       const userId = getUserId();
       const res = await fetch(`${BASE_URL}/usage`, {
@@ -140,10 +136,8 @@ export default function App() {
         const data = await res.json();
         return { allowed: true, remaining: data.remaining };
       }
-      // On any unexpected error, allow through — don't block users on infra issues
       return { allowed: true, remaining: null };
     } catch {
-      // Network error or timeout — allow through silently
       return { allowed: true, remaining: null };
     }
   };
@@ -301,14 +295,10 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     setGameState('config');
     loadProfile(selectedType).catch(() => {});
 
-    // Fetch usage info for shared-key users so ConfigScreen can show the indicator
     const groqKey        = apiKeys['llama'];
     const usingSharedKey = !groqKey || groqKey.trim() === '' || groqKey === DEFAULT_GROQ_KEY;
     if (usingSharedKey) {
       try {
-        const BASE_URL = import.meta.env.MODE === 'development'
-          ? '/api'
-          : 'https://splunkmockexam.gtaad-innovations.com/api';
         const { getUserId } = await import('./utils/agentAdaptive.js');
         const userId = getUserId();
         const res = await fetch(`${BASE_URL}/usage?userId=${encodeURIComponent(userId)}`, {
@@ -319,15 +309,11 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
         // Non-fatal — indicator just won't show
       }
     } else {
-      setUsageInfo(null); // own-key users don't see the indicator
+      setUsageInfo(null);
     }
   }, [apiKeys]);
 
   // ── handleStartExam ────────────────────────────────────────────────────────
-  // Fix 3: Layer 1 validation now runs for ALL users.
-  //   - Own Groq key  → full pipeline, up to 4 refinement cycles
-  //   - Shared/no key → 1 lightweight cycle (catches critical failures
-  //                     without hammering the shared quota)
   const handleStartExam = useCallback(async () => {
     const rawKey     = apiKeys[examConfig.aiProvider];
     const currentKey = (examConfig.aiProvider === 'llama' && (!rawKey || !rawKey.trim())) ? DEFAULT_GROQ_KEY : rawKey;
@@ -336,8 +322,6 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
       return;
     }
 
-    // ── Usage limit check (shared-key users only) ──────────────────────────
-    // Own-key users bypass this entirely — they use their own Groq quota.
     const groqKey        = apiKeys['llama'];
     const usingSharedKey = !groqKey || groqKey.trim() === '' || groqKey === DEFAULT_GROQ_KEY;
 
@@ -348,7 +332,6 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
         return;
       }
       if (usage.remaining !== null && usage.remaining <= 2) {
-        // Non-blocking low-quota nudge — stored so we can show it after load
         console.info(`[Usage] ${usage.remaining} shared-key exam${usage.remaining !== 1 ? 's' : ''} remaining today`);
       }
     }
@@ -376,11 +359,8 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
       return;
     }
 
-    // Layer 1: Validation — runs for ALL users now.
-    // usingSharedKey → 1 cycle (lightweight, protects shared quota)
-    // own key        → full 4-cycle pipeline
-    const validationKey  = usingSharedKey ? DEFAULT_GROQ_KEY : groqKey;
-    const bp             = EXAM_BLUEPRINTS[examType];
+    const validationKey = usingSharedKey ? DEFAULT_GROQ_KEY : groqKey;
+    const bp            = EXAM_BLUEPRINTS[examType];
 
     const { questions: validatedQuestions, validationLog } = await runValidationPipeline(
       fetchedQuestions,
@@ -388,31 +368,30 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
       bp?.level || 'Intermediate-Level',
       validationKey,
       (msg) => setLoadingText(msg),
-      usingSharedKey ? 1 : undefined   // 1 cycle for shared key, default (4) for own key
+      usingSharedKey ? 1 : undefined
     );
 
     setLastValidationLog(validationLog);
 
-    // ── NEW: persist generation trace to D1 ──────────────────────────
-    const BASE_URL = import.meta.env.MODE === 'development'
-      ? '/api'
-      : 'https://splunkmockexam.gtaad-innovations.com/api';
-    const { getUserId } = await import('./utils/agentAdaptive.js');
-    fetch(`${BASE_URL}/traces`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId: getUserId(),
-        examType,
-        trace: {
-          ...trace,
-          questionCount:      validatedQuestions.length,
-          validationCycles:   validationLog.length,
-          validationFailures: validationLog.reduce((s, c) => s + c.failureCount, 0),
-          ragPassageCount:    passages.length,
-        }
-      })
-    }).catch(() => {});
+    // ── Persist generation trace to D1 ────────────────────────────────────
+    if (genTrace) {
+      const { getUserId } = await import('./utils/agentAdaptive.js');
+      fetch(`${BASE_URL}/traces`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: getUserId(),
+          examType,
+          trace: {
+            ...genTrace,
+            questionCount:       validatedQuestions.length,
+            validationCycles:    validationLog.length,
+            validationFailures:  validationLog.reduce((s, c) => s + c.failureCount, 0),
+            ragPassageCount:     passages.length,
+          }
+        })
+      }).catch(() => {});
+    }
 
     const randomizedQuestions = validatedQuestions.map(q => {
       const safeQuestion = typeof q.question === 'string' ? q.question : JSON.stringify(q?.question || 'Missing question text');

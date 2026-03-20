@@ -1,10 +1,11 @@
 /**
  * agentAdaptive.js — Layer 3: Adaptive Difficulty Agent
  *
- * Now also accepts validationLog from Layer 1 (agentValidator.js).
- * Per-topic validation failure rates are stored alongside performance data
- * and fed back into buildAdaptiveContext so the prompt can warn the AI
- * which topics historically produce bad questions.
+ * Rolling trend detection (v2):
+ *   - D1 now stores score_history (last 7 session scores) per topic.
+ *   - computeRollingTrend() replaces the old two-point delta.
+ *   - localStorage profiles that predate this feature fall back gracefully
+ *     to the legacy two-point delta until D1 sync populates scoreHistory.
  *
  * API endpoints used:
  * GET  /api/profile?userId=&examType=  → read profile
@@ -15,6 +16,7 @@
 
 const LOCAL_KEY   = 'splunkAdaptiveProfile';
 const USER_ID_KEY = 'splunkUserId';
+const SCORE_HISTORY_WINDOW = 7;
 
 const BASE_URL = import.meta.env.MODE === 'development'
   ? '/api'
@@ -32,6 +34,49 @@ export const getUserId = () => {
   } catch {
     return 'anonymous';
   }
+};
+
+// ─── Rolling trend from score history ────────────────────────────────────────
+// Simple direction: compare average of recent half vs older half.
+// Requires at least 2 data points. Returns 'new' if insufficient data.
+//
+// Window = 7, example: [45, 50, 55, 60, 65, 70, 75]
+//   older half [45,50,55] avg = 50  →  recent half [60,65,70,75] avg = 67.5
+//   delta = +17.5  →  'improving'
+//
+// Falls back to legacy two-point delta for profiles with no scoreHistory.
+const computeRollingTrend = (scoreHistory, lastScore, prevScore) => {
+  // Use rolling window if we have enough data
+  if (Array.isArray(scoreHistory) && scoreHistory.length >= 2) {
+    const mid = Math.floor(scoreHistory.length / 2);
+    const older  = scoreHistory.slice(0, mid);
+    const recent = scoreHistory.slice(mid);
+    const avgOlder  = older.reduce((s, v) => s + v, 0) / older.length;
+    const avgRecent = recent.reduce((s, v) => s + v, 0) / recent.length;
+    const delta = avgRecent - avgOlder;
+    if (delta > 10)  return 'improving';
+    if (delta < -10) return 'declining';
+    return 'stable';
+  }
+
+  // Legacy fallback: two-point delta (for old localStorage profiles)
+  if (typeof lastScore === 'number' && typeof prevScore === 'number') {
+    if (lastScore > prevScore + 10) return 'improving';
+    if (lastScore < prevScore - 10) return 'declining';
+    return 'stable';
+  }
+
+  return 'new';
+};
+
+// ─── Append score to local history, capped at window size ─────────────────────
+const appendToHistory = (existingHistory, newScore) => {
+  const history = Array.isArray(existingHistory) ? [...existingHistory] : [];
+  history.push(newScore);
+  if (history.length > SCORE_HISTORY_WINDOW) {
+    return history.slice(history.length - SCORE_HISTORY_WINDOW);
+  }
+  return history;
 };
 
 // ─── localStorage helpers ─────────────────────────────────────────────────────
@@ -74,8 +119,22 @@ export const loadProfile = async (examType) => {
     if (res.ok) {
       const data = await res.json();
       if (data.topics && Object.keys(data.topics).length > 0) {
+        // Sync D1 data (including scoreHistory) back to localStorage
         const local = loadLocalProfile();
-        local[examType] = { sessions: data.sessions, lastUpdated: data.lastUpdated, topics: data.topics };
+        local[examType] = {
+          sessions:    data.sessions,
+          lastUpdated: data.lastUpdated,
+          topics:      Object.fromEntries(
+            Object.entries(data.topics).map(([name, t]) => [name, {
+              attempts:              t.attempts,
+              errors:                t.errors,
+              lastScore:             t.lastScore,
+              trend:                 t.trend,
+              scoreHistory:          t.scoreHistory || [],
+              validationFailureRate: t.validationFailureRate ?? 0,
+            }])
+          ),
+        };
         saveLocalProfile(local);
       }
       return data;
@@ -90,34 +149,26 @@ export const loadProfile = async (examType) => {
 };
 
 // ─── Compute per-topic validation failure rates from validationLog ────────────
-// validationLog shape: [{ cycle, failureCount, failureRate, failures: [{ index, topic, ... }] }]
-// Returns: { [topic]: highestFailureRate (0-100) }
 const computeTopicValidationFailures = (validationLog, questions) => {
   if (!validationLog || validationLog.length === 0) return {};
-
-  // Use cycle 1 failures — that's the raw AI output before any regeneration
   const firstCycle = validationLog[0];
   if (!firstCycle || !firstCycle.failures || firstCycle.failures.length === 0) return {};
 
-  // Map question index → topic
   const indexToTopic = {};
   questions.forEach((q, i) => { indexToTopic[i] = q.topic || 'General'; });
 
-  // Count failures per topic
-  const topicFailCounts = {};
+  const topicFailCounts  = {};
   const topicTotalCounts = {};
 
   firstCycle.failures.forEach(f => {
     const topic = indexToTopic[f.index] || 'General';
     topicFailCounts[topic] = (topicFailCounts[topic] || 0) + 1;
   });
-
   questions.forEach(q => {
     const topic = q.topic || 'General';
     topicTotalCounts[topic] = (topicTotalCounts[topic] || 0) + 1;
   });
 
-  // Compute failure rate per topic
   const result = {};
   for (const topic of Object.keys(topicFailCounts)) {
     const total = topicTotalCounts[topic] || 1;
@@ -127,11 +178,10 @@ const computeTopicValidationFailures = (validationLog, questions) => {
 };
 
 // ─── Update profile after exam ────────────────────────────────────────────────
-// Now accepts optional validationLog from Layer 1 pipeline
 export const updateProfile = async (examType, questions, userAnswers, validationLog = []) => {
   const userId = getUserId();
 
-  // ── Compute session performance per topic ──────────────────────────────
+  // Compute session performance per topic
   const sessionTopicStats = {};
   questions.forEach((q, idx) => {
     const topic = q.topic || 'General';
@@ -140,34 +190,32 @@ export const updateProfile = async (examType, questions, userAnswers, validation
     if (userAnswers[idx] !== q.correctIndex) sessionTopicStats[topic].errors += 1;
   });
 
-  // ── Compute per-topic validation failure rates from Layer 1 ────────────
   const topicValidationFailures = computeTopicValidationFailures(validationLog, questions);
   const overallFailureRate = validationLog[0]?.failureRate ?? 0;
 
   const sessionResults = Object.entries(sessionTopicStats).map(([topic, stats]) => ({
     topic,
-    attempts: stats.attempts,
-    errors: stats.errors,
-    sessionScore: Math.round(((stats.attempts - stats.errors) / stats.attempts) * 100),
-    // Attach validation failure rate for this topic if available
-    validationFailureRate: topicValidationFailures[topic] ?? 0
+    attempts:              stats.attempts,
+    errors:                stats.errors,
+    sessionScore:          Math.round(((stats.attempts - stats.errors) / stats.attempts) * 100),
+    validationFailureRate: topicValidationFailures[topic] ?? 0,
   }));
 
-  // ── D1 write (non-blocking) ────────────────────────────────────────────
+  // D1 write (non-blocking) — server handles score_history append + trend computation
   fetch(`${BASE_URL}/profile`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userId, examType, sessionResults, overallFailureRate })
   }).catch(err => console.warn('[Adaptive] D1 write failed:', err.message));
 
-  // ── Wrong answers write (non-blocking) ────────────────────────────────
+  // Wrong answers write (non-blocking)
   const wrongAnswers = questions
     .map((q, idx) => ({ q, idx }))
     .filter(({ q, idx }) => userAnswers[idx] !== q.correctIndex)
     .map(({ q }) => ({
-      topic: q.topic || 'General',
-      question: q.question,
-      correctAnswer: q.options[q.correctIndex]
+      topic:         q.topic || 'General',
+      question:      q.question,
+      correctAnswer: q.options[q.correctIndex],
     }));
 
   if (wrongAnswers.length > 0) {
@@ -178,7 +226,7 @@ export const updateProfile = async (examType, questions, userAnswers, validation
     }).catch(err => console.warn('[Adaptive] Wrong answers write failed:', err.message));
   }
 
-  // ── localStorage write (always) ───────────────────────────────────────
+  // localStorage write — mirrors D1 logic: append to scoreHistory, compute rolling trend
   const local = loadLocalProfile();
   if (!local[examType]) local[examType] = { sessions: 0, lastUpdated: null, topics: {} };
   const examProfile = local[examType];
@@ -187,32 +235,34 @@ export const updateProfile = async (examType, questions, userAnswers, validation
 
   for (const { topic, attempts, errors, sessionScore, validationFailureRate } of sessionResults) {
     const prev = examProfile.topics[topic];
+
     if (!prev) {
       examProfile.topics[topic] = {
         attempts,
         errors,
-        lastScore: sessionScore,
-        trend: 'new',
-        validationFailureRate
+        lastScore:             sessionScore,
+        trend:                 'new',
+        scoreHistory:          [sessionScore],
+        validationFailureRate,
       };
     } else {
-      const prevScore = prev.lastScore ?? 50;
-      let trend = 'stable';
-      if (sessionScore > prevScore + 10) trend = 'improving';
-      else if (sessionScore < prevScore - 10) trend = 'declining';
+      // Append new score to rolling history
+      const updatedHistory = appendToHistory(prev.scoreHistory || [], sessionScore);
+      // Compute trend from rolling history (falls back to two-point if < 2 entries)
+      const newTrend = computeRollingTrend(updatedHistory, sessionScore, prev.lastScore ?? 50);
 
-      // Rolling average of validation failure rate (weight current session equally)
       const prevVfr = prev.validationFailureRate ?? 0;
-      const newVfr = prevVfr > 0
+      const newVfr  = prevVfr > 0
         ? Math.round((prevVfr + validationFailureRate) / 2)
         : validationFailureRate;
 
       examProfile.topics[topic] = {
-        attempts: prev.attempts + attempts,
-        errors: prev.errors + errors,
-        lastScore: sessionScore,
-        trend,
-        validationFailureRate: newVfr
+        attempts:              prev.attempts + attempts,
+        errors:                prev.errors   + errors,
+        lastScore:             sessionScore,
+        trend:                 newTrend,
+        scoreHistory:          updatedHistory,
+        validationFailureRate: newVfr,
       };
     }
   }
@@ -230,36 +280,35 @@ export const buildAdaptiveContext = (examType, numQuestions, blueprintTopics) =>
   }
 
   const scored = Object.entries(examProfile.topics).map(([name, stats]) => {
-    const errorRate = stats.attempts > 0 ? stats.errors / stats.attempts : 0;
+    const errorRate     = stats.attempts > 0 ? stats.errors / stats.attempts : 0;
     const recencyFactor = stats.trend === 'declining' ? 1.4 : stats.trend === 'improving' ? 0.7 : 1.0;
     return {
       name,
-      errorRate: Math.round(errorRate * 100),
-      trend: stats.trend,
-      priority: errorRate * recencyFactor,
-      lastScore: stats.lastScore,
-      validationFailureRate: stats.validationFailureRate ?? 0
+      errorRate:             Math.round(errorRate * 100),
+      trend:                 stats.trend,
+      priority:              errorRate * recencyFactor,
+      lastScore:             stats.lastScore,
+      scoreHistory:          stats.scoreHistory || [],
+      validationFailureRate: stats.validationFailureRate ?? 0,
     };
   }).sort((a, b) => b.priority - a.priority);
 
-  const weakTopics = scored.filter(t => t.errorRate > 40);
+  const weakTopics  = scored.filter(t => t.errorRate > 40);
   const strongTopics = scored.filter(t => t.errorRate <= 20 && t.trend !== 'new');
-
-  // Topics that historically cause the AI to generate poor questions
   const highValidationFailureTopics = scored.filter(t => t.validationFailureRate >= 30);
 
   if (weakTopics.length === 0 && strongTopics.length === 0 && highValidationFailureTopics.length === 0) {
     return { adaptivePromptSection: '', adaptiveSummary: null };
   }
 
-  const baseWeight = numQuestions / Math.max(scored.length, 1);
+  const baseWeight   = numQuestions / Math.max(scored.length, 1);
   const distribution = scored.map(t => {
     let count;
-    if (t.errorRate > 60) count = Math.ceil(baseWeight * 1.8);
-    else if (t.errorRate > 40) count = Math.ceil(baseWeight * 1.4);
+    if (t.errorRate > 60)                             count = Math.ceil(baseWeight * 1.8);
+    else if (t.errorRate > 40)                        count = Math.ceil(baseWeight * 1.4);
     else if (t.errorRate <= 20 && t.trend === 'improving') count = Math.floor(baseWeight * 0.6);
-    else if (t.errorRate <= 20) count = Math.floor(baseWeight * 0.8);
-    else count = Math.round(baseWeight);
+    else if (t.errorRate <= 20)                       count = Math.floor(baseWeight * 0.8);
+    else                                              count = Math.round(baseWeight);
     return { ...t, adaptiveCount: Math.max(1, count) };
   });
 
@@ -273,14 +322,13 @@ export const buildAdaptiveContext = (examType, numQuestions, blueprintTopics) =>
   }
 
   const weakList = weakTopics.map(t =>
-    `  - "${t.name}" (${t.errorRate}% error rate, trend: ${t.trend})`
+    `  - "${t.name}" (${t.errorRate}% error rate, trend: ${t.trend}, sessions tracked: ${t.scoreHistory.length})`
   ).join('\n');
 
   const distList = distribution.map(t =>
     `  - "${t.name}": ${t.adaptiveCount} question${t.adaptiveCount !== 1 ? 's' : ''}`
   ).join('\n');
 
-  // ── Layer 1 → Layer 3 cross-layer signal ──────────────────────────────
   const validationWarning = highValidationFailureTopics.length > 0
     ? `
 GENERATION QUALITY WARNING — Based on historical validation data, the following topics
@@ -298,7 +346,7 @@ For these topics specifically:
   return {
     adaptivePromptSection: `
 ADAPTIVE LEARNING CONTEXT — This candidate has taken ${examProfile.sessions} previous session(s).
-Based on their performance history, adjust question generation as follows:
+Based on their rolling performance history (up to last ${SCORE_HISTORY_WINDOW} sessions), adjust question generation as follows:
 
 Weak areas requiring extra focus (${weakTopics.length} topic${weakTopics.length !== 1 ? 's' : ''}):
 ${weakList || '  (none identified yet)'}
@@ -315,15 +363,15 @@ For strong topics (error rate ≤ 20%, improving trend):
 - Maintain coverage but reduce count as shown above
 ${validationWarning}`,
     adaptiveSummary: {
-      sessions: examProfile.sessions,
-      weakTopics: weakTopics.map(t => ({ name: t.name, errorRate: t.errorRate, trend: t.trend })),
-      strongTopics: strongTopics.map(t => ({ name: t.name, errorRate: t.errorRate, trend: t.trend })),
+      sessions:    examProfile.sessions,
+      weakTopics:  weakTopics.map(t => ({ name: t.name, errorRate: t.errorRate, trend: t.trend, scoreHistory: t.scoreHistory })),
+      strongTopics: strongTopics.map(t => ({ name: t.name, errorRate: t.errorRate, trend: t.trend, scoreHistory: t.scoreHistory })),
       highValidationFailureTopics: highValidationFailureTopics.map(t => ({
         name: t.name,
-        validationFailureRate: t.validationFailureRate
+        validationFailureRate: t.validationFailureRate,
       })),
-      distribution: distribution.map(t => ({ name: t.name, count: t.adaptiveCount }))
-    }
+      distribution: distribution.map(t => ({ name: t.name, count: t.adaptiveCount })),
+    },
   };
 };
 
@@ -334,12 +382,13 @@ export const getProfileSummary = (examType) => {
   if (!examProfile) return null;
   const topics = Object.entries(examProfile.topics).map(([name, stats]) => ({
     name,
-    lastScore: stats.lastScore,
-    attempts: stats.attempts,
-    errors: stats.errors,
-    trend: stats.trend,
+    lastScore:             stats.lastScore,
+    attempts:              stats.attempts,
+    errors:                stats.errors,
+    trend:                 stats.trend,
+    scoreHistory:          stats.scoreHistory || [],
     validationFailureRate: stats.validationFailureRate ?? 0,
-    errorRate: stats.attempts > 0 ? Math.round((stats.errors / stats.attempts) * 100) : 0
+    errorRate:             stats.attempts > 0 ? Math.round((stats.errors / stats.attempts) * 100) : 0,
   })).sort((a, b) => b.errorRate - a.errorRate);
   return { examType, sessions: examProfile.sessions, lastUpdated: examProfile.lastUpdated, topics };
 };

@@ -3,6 +3,7 @@ import {
   CheckCircle, XCircle, AlertTriangle, BookOpen, Award, RotateCcw,
   ShieldCheck, ExternalLink, Zap, BarChart2, RefreshCw, BadgeCheck,
   CalendarCheck, FileText, Shield, Target, ChevronDown, ChevronUp,
+  GraduationCap,
 } from 'lucide-react';
 import { TOPIC_LINKS, EXAM_BLUEPRINTS } from '../utils/constants';
 import { DEFAULT_GROQ_KEY } from '../utils/api';
@@ -27,9 +28,6 @@ function ReadinessCard({ examType, bp }) {
   if (!readiness || readiness.sessions === 0) return null;
 
   const unAttempted = readiness.breakdown.filter(t => !t.attempted);
-  const weakInBlueprint = readiness.breakdown
-    .filter(t => t.attempted && t.accuracy < 60)
-    .sort((a, b) => a.accuracy - b.accuracy);
 
   return (
     <div className={`bg-white rounded-xl shadow-md border p-6 ${readiness.labelBg}`}>
@@ -41,7 +39,12 @@ function ReadinessCard({ examType, bp }) {
           <div>
             <h4 className="font-bold text-slate-800 text-sm">Exam Readiness</h4>
             <p className="text-xs text-slate-500 mt-0.5">
-              Based on {readiness.sessions} session{readiness.sessions !== 1 ? 's' : ''} · {readiness.coveredPct}% of blueprint covered
+              {readiness.sessions} session{readiness.sessions !== 1 ? 's' : ''} · {readiness.coveredPct}% covered
+              {readiness.graduatedCount > 0 && (
+                <span className="ml-1.5 text-emerald-600 font-semibold">
+                  · {readiness.graduatedCount} topic{readiness.graduatedCount !== 1 ? 's' : ''} mastered 🎓
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -66,7 +69,7 @@ function ReadinessCard({ examType, bp }) {
         />
       </div>
 
-      {/* Nudges */}
+      {/* Coverage gap nudge */}
       {unAttempted.length > 0 && (
         <p className="text-xs text-slate-600 bg-white/60 rounded-lg px-3 py-2 mb-2">
           <span className="font-semibold">Coverage gap:</span> {unAttempted.length} blueprint topic{unAttempted.length !== 1 ? 's' : ''} never attempted
@@ -93,7 +96,8 @@ function ReadinessCard({ examType, bp }) {
                 <div className="h-1.5 bg-white/60 rounded-full overflow-hidden">
                   <div
                     className={`h-full rounded-full ${
-                      !t.attempted         ? 'bg-slate-300' :
+                      t.graduated          ? 'bg-emerald-400' :
+                      !t.attempted         ? 'bg-slate-300'   :
                       t.accuracy >= 80     ? 'bg-emerald-400' :
                       t.accuracy >= 60     ? 'bg-blue-400'    :
                       t.accuracy >= 40     ? 'bg-amber-400'   :
@@ -104,20 +108,24 @@ function ReadinessCard({ examType, bp }) {
                 </div>
               </div>
               <span className="text-xs text-slate-600 truncate flex-grow">{t.name}</span>
+              {t.graduated && (
+                <GraduationCap className="w-3 h-3 text-emerald-500 flex-shrink-0" />
+              )}
               <span className={`text-xs font-bold flex-shrink-0 ${
-                !t.attempted     ? 'text-slate-400' :
+                t.graduated      ? 'text-emerald-600' :
+                !t.attempted     ? 'text-slate-400'   :
                 t.accuracy >= 80 ? 'text-emerald-600' :
                 t.accuracy >= 60 ? 'text-blue-600'    :
                 t.accuracy >= 40 ? 'text-amber-600'   :
                                    'text-red-600'
               }`}>
-                {t.attempted ? `${t.accuracy}%` : '—'}
+                {t.graduated ? '🎓' : t.attempted ? `${t.accuracy}%` : '—'}
               </span>
               <span className="text-xs text-slate-400 flex-shrink-0 w-6 text-right">{t.pct}%</span>
             </div>
           ))}
           <p className="text-xs text-slate-400 pt-1 border-t border-white/40">
-            Bar = accuracy · Right column = blueprint weight
+            Bar = accuracy · Right column = blueprint weight · 🎓 = mastered
           </p>
         </div>
       )}
@@ -140,7 +148,7 @@ export default function ResultsScreen({
   if (!resultsData) return null;
 
   const { score, passed, correct, total, topicsToReview } = resultsData;
-  const bp = EXAM_BLUEPRINTS[examType];
+  const bp      = EXAM_BLUEPRINTS[examType];
   const groqKey = apiKeys['llama'] || DEFAULT_GROQ_KEY;
 
   const [enrichedQuestions, setEnrichedQuestions] = useState(questions);
@@ -152,9 +160,7 @@ export default function ResultsScreen({
         const { wrongAnswers: bankItems } = await getWrongAnswerBank(examType, false);
         if (!bankItems || bankItems.length === 0 || cancelled) return;
         const missedMap = {};
-        for (const item of bankItems) {
-          missedMap[item.question_hash] = item.times_missed;
-        }
+        for (const item of bankItems) missedMap[item.question_hash] = item.times_missed;
         const enriched = questions.map(q => {
           const hash = simpleHash(q.question);
           const timesMissed = missedMap[hash];
@@ -238,12 +244,13 @@ export default function ResultsScreen({
         {/* ── Right column ── */}
         <div className="flex flex-col gap-6">
 
-          {/* Exam Readiness Score — shown as soon as profile has 1+ session */}
+          {/* Exam Readiness Score */}
           <ReadinessCard examType={examType} bp={bp} />
 
           {/* Learning Profile */}
           {profile && profile.sessions >= 1 && (() => {
             const topTopics = profile.topics.slice(0, 5);
+            const graduatedTopics = profile.topics.filter(t => t.graduatedAt);
             return (
               <div className="bg-white rounded-xl shadow-md p-6 border border-slate-100">
                 <div className="flex items-center justify-between mb-4">
@@ -252,7 +259,12 @@ export default function ResultsScreen({
                       <BarChart2 className="w-4 h-4 text-purple-500" /> Your Learning Profile
                     </h4>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      {profile.sessions} session{profile.sessions !== 1 ? 's' : ''} tracked — next exam will adapt to your weak areas
+                      {profile.sessions} session{profile.sessions !== 1 ? 's' : ''} tracked
+                      {graduatedTopics.length > 0 && (
+                        <span className="ml-1.5 text-emerald-600 font-semibold">
+                          · {graduatedTopics.length} mastered 🎓
+                        </span>
+                      )}
                     </p>
                   </div>
                   <button
@@ -263,6 +275,7 @@ export default function ResultsScreen({
                     <RotateCcw className="w-3.5 h-3.5" />
                   </button>
                 </div>
+
                 <div className="mb-3 bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex items-center gap-2">
                   <Shield className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                   <div className="min-w-0">
@@ -270,34 +283,54 @@ export default function ResultsScreen({
                     <p className="text-xs font-mono text-slate-700 truncate">{getUserId()}</p>
                   </div>
                 </div>
+
                 <div className="space-y-2">
-                  {topTopics.map((t, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <div className="w-full">
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-xs text-slate-600 truncate pr-2 max-w-[60%]">{t.name}</span>
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            <span className={`text-xs font-bold ${t.errorRate > 50 ? 'text-red-600' : t.errorRate > 25 ? 'text-orange-500' : 'text-green-600'}`}>
-                              {100 - t.errorRate}%
+                  {topTopics.map((t, i) => {
+                    const isGrad = !!(t.graduatedAt);
+                    return (
+                      <div key={i} className="flex items-center gap-3">
+                        <div className="w-full">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-xs text-slate-600 truncate pr-2 max-w-[55%] flex items-center gap-1">
+                              {isGrad && <GraduationCap className="w-3 h-3 text-emerald-500 flex-shrink-0" />}
+                              {t.name}
                             </span>
-                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                              t.trend === 'improving' ? 'bg-green-100 text-green-700' :
-                              t.trend === 'declining' ? 'bg-red-100 text-red-700'    :
-                              t.trend === 'new'       ? 'bg-blue-100 text-blue-700'  :
-                                                        'bg-slate-100 text-slate-500'
-                            }`}>{t.trend}</span>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {isGrad ? (
+                                <span className="text-xs font-bold text-emerald-600">Mastered</span>
+                              ) : (
+                                <span className={`text-xs font-bold ${t.errorRate > 50 ? 'text-red-600' : t.errorRate > 25 ? 'text-orange-500' : 'text-green-600'}`}>
+                                  {100 - t.errorRate}%
+                                </span>
+                              )}
+                              <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                                isGrad                 ? 'bg-emerald-100 text-emerald-700' :
+                                t.trend === 'improving' ? 'bg-green-100 text-green-700'   :
+                                t.trend === 'declining' ? 'bg-red-100 text-red-700'       :
+                                t.trend === 'new'       ? 'bg-blue-100 text-blue-700'     :
+                                                          'bg-slate-100 text-slate-500'
+                              }`}>
+                                {isGrad ? '🎓' : t.trend}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                isGrad           ? 'bg-emerald-400'  :
+                                t.errorRate > 50 ? 'bg-red-400'      :
+                                t.errorRate > 25 ? 'bg-orange-400'   :
+                                                   'bg-green-400'
+                              }`}
+                              style={{ width: isGrad ? '100%' : `${100 - t.errorRate}%` }}
+                            />
                           </div>
                         </div>
-                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all ${t.errorRate > 50 ? 'bg-red-400' : t.errorRate > 25 ? 'bg-orange-400' : 'bg-green-400'}`}
-                            style={{ width: `${100 - t.errorRate}%` }}
-                          />
-                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
+
                 {profile.topics.length > 5 && (
                   <p className="text-xs text-slate-400 mt-3 text-center">+{profile.topics.length - 5} more topics tracked</p>
                 )}
@@ -353,17 +386,13 @@ export default function ResultsScreen({
                 <p className="text-slate-500 text-sm mt-1">Mock score clears 70%. Consider booking the real exam while the material is fresh.</p>
               </div>
               {bp && (
-                <a
-                  href={bp.scheduleUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <a href={bp.scheduleUrl} target="_blank" rel="noopener noreferrer"
                   className="w-full flex items-center justify-center px-6 py-4 rounded-lg font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-md"
                 >
                   <CalendarCheck className="w-5 h-5 mr-2" /> Schedule the Real Exam
                 </a>
               )}
-              <button
-                onClick={onRetry}
+              <button onClick={onRetry}
                 className="w-full flex items-center justify-center px-6 py-3 rounded-lg font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
               >
                 <RotateCcw className="w-4 h-4 mr-2" /> Practice Again
@@ -379,17 +408,13 @@ export default function ResultsScreen({
                 </p>
               </div>
               {bp && (
-                <a
-                  href={bp.blueprintUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <a href={bp.blueprintUrl} target="_blank" rel="noopener noreferrer"
                   className="w-full flex items-center justify-center px-6 py-3 rounded-lg font-semibold bg-pink-50 text-pink-700 hover:bg-pink-100 transition-colors border border-pink-200 text-sm"
                 >
                   <FileText className="w-4 h-4 mr-2" /> Review Official Blueprint PDF
                 </a>
               )}
-              <button
-                onClick={onRetry}
+              <button onClick={onRetry}
                 className="w-full flex items-center justify-center px-6 py-4 rounded-lg font-bold bg-slate-800 text-white hover:bg-slate-900 transition-colors"
               >
                 <RotateCcw className="w-5 h-5 mr-2" /> Try Again
@@ -399,7 +424,7 @@ export default function ResultsScreen({
         </div>
       </div>
 
-      {/* ── Wrong Answer Review Section ── */}
+      {/* ── Wrong Answer Review ── */}
       {wrongAnswers.length > 0 && (
         <div className="bg-white rounded-2xl shadow-md border border-slate-100 overflow-hidden">
           <div className="p-6 border-b border-slate-100 flex items-center justify-between">

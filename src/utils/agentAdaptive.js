@@ -7,6 +7,11 @@
  *   - localStorage profiles that predate this feature fall back gracefully
  *     to the legacy two-point delta until D1 sync populates scoreHistory.
  *
+ * Exam-readiness score (v3):
+ *   - computeExamReadiness() returns a 0-100 score weighted against blueprint
+ *     percentages. Unseen topics contribute 50% (neutral, not penalizing).
+ *     Also returns a breakdown array and a qualitative label.
+ *
  * API endpoints used:
  * GET  /api/profile?userId=&examType=  → read profile
  * POST /api/profile                    → write profile after exam
@@ -37,16 +42,7 @@ export const getUserId = () => {
 };
 
 // ─── Rolling trend from score history ────────────────────────────────────────
-// Simple direction: compare average of recent half vs older half.
-// Requires at least 2 data points. Returns 'new' if insufficient data.
-//
-// Window = 7, example: [45, 50, 55, 60, 65, 70, 75]
-//   older half [45,50,55] avg = 50  →  recent half [60,65,70,75] avg = 67.5
-//   delta = +17.5  →  'improving'
-//
-// Falls back to legacy two-point delta for profiles with no scoreHistory.
 const computeRollingTrend = (scoreHistory, lastScore, prevScore) => {
-  // Use rolling window if we have enough data
   if (Array.isArray(scoreHistory) && scoreHistory.length >= 2) {
     const mid = Math.floor(scoreHistory.length / 2);
     const older  = scoreHistory.slice(0, mid);
@@ -58,14 +54,11 @@ const computeRollingTrend = (scoreHistory, lastScore, prevScore) => {
     if (delta < -10) return 'declining';
     return 'stable';
   }
-
-  // Legacy fallback: two-point delta (for old localStorage profiles)
   if (typeof lastScore === 'number' && typeof prevScore === 'number') {
     if (lastScore > prevScore + 10) return 'improving';
     if (lastScore < prevScore - 10) return 'declining';
     return 'stable';
   }
-
   return 'new';
 };
 
@@ -119,7 +112,6 @@ export const loadProfile = async (examType) => {
     if (res.ok) {
       const data = await res.json();
       if (data.topics && Object.keys(data.topics).length > 0) {
-        // Sync D1 data (including scoreHistory) back to localStorage
         const local = loadLocalProfile();
         local[examType] = {
           sessions:    data.sessions,
@@ -181,7 +173,6 @@ const computeTopicValidationFailures = (validationLog, questions) => {
 export const updateProfile = async (examType, questions, userAnswers, validationLog = []) => {
   const userId = getUserId();
 
-  // Compute session performance per topic
   const sessionTopicStats = {};
   questions.forEach((q, idx) => {
     const topic = q.topic || 'General';
@@ -201,14 +192,12 @@ export const updateProfile = async (examType, questions, userAnswers, validation
     validationFailureRate: topicValidationFailures[topic] ?? 0,
   }));
 
-  // D1 write (non-blocking) — server handles score_history append + trend computation
   fetch(`${BASE_URL}/profile`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userId, examType, sessionResults, overallFailureRate })
   }).catch(err => console.warn('[Adaptive] D1 write failed:', err.message));
 
-  // Wrong answers write (non-blocking)
   const wrongAnswers = questions
     .map((q, idx) => ({ q, idx }))
     .filter(({ q, idx }) => userAnswers[idx] !== q.correctIndex)
@@ -226,7 +215,6 @@ export const updateProfile = async (examType, questions, userAnswers, validation
     }).catch(err => console.warn('[Adaptive] Wrong answers write failed:', err.message));
   }
 
-  // localStorage write — mirrors D1 logic: append to scoreHistory, compute rolling trend
   const local = loadLocalProfile();
   if (!local[examType]) local[examType] = { sessions: 0, lastUpdated: null, topics: {} };
   const examProfile = local[examType];
@@ -246,9 +234,7 @@ export const updateProfile = async (examType, questions, userAnswers, validation
         validationFailureRate,
       };
     } else {
-      // Append new score to rolling history
       const updatedHistory = appendToHistory(prev.scoreHistory || [], sessionScore);
-      // Compute trend from rolling history (falls back to two-point if < 2 entries)
       const newTrend = computeRollingTrend(updatedHistory, sessionScore, prev.lastScore ?? 50);
 
       const prevVfr = prev.validationFailureRate ?? 0;
@@ -269,6 +255,91 @@ export const updateProfile = async (examType, questions, userAnswers, validation
 
   saveLocalProfile(local);
   return examProfile;
+};
+
+// ─── Exam-readiness score ─────────────────────────────────────────────────────
+// Returns a 0-100 readiness score weighted against official blueprint percentages.
+//
+// Algorithm:
+//   For each blueprint topic, accuracy = 100 - errorRate (from cumulative profile).
+//   Unseen topics (no profile data) default to 50% — neutral, not penalizing.
+//   readiness = Σ (accuracy_i × weight_i)  where weight_i = topic.pct / 100
+//
+// Returns:
+//   score       — 0-100 weighted readiness number
+//   label       — 'Not Ready' | 'Getting There' | 'Almost Ready' | 'Ready'
+//   labelColor  — Tailwind text color class
+//   labelBg     — Tailwind bg+border class for the badge
+//   coveredPct  — % of blueprint weight actually attempted at least once
+//   breakdown   — per-topic array for drill-down display
+//   sessions    — total sessions for this exam type
+//
+// blueprintTopics: EXAM_BLUEPRINTS[examType].topics  — [{ name, pct }, ...]
+export const computeExamReadiness = (examType, blueprintTopics) => {
+  if (!blueprintTopics || blueprintTopics.length === 0) return null;
+
+  const local       = loadLocalProfile();
+  const examProfile = local[examType];
+  const topicStats  = examProfile?.topics || {};
+
+  let weightedSum   = 0;
+  let coveredWeight = 0;
+
+  const breakdown = blueprintTopics.map(({ name, pct }) => {
+    const weight  = pct / 100;
+    const profile = topicStats[name];
+
+    const errorRate = profile && profile.attempts > 0
+      ? Math.round((profile.errors / profile.attempts) * 100)
+      : null; // null = never attempted
+
+    const accuracy     = errorRate !== null ? Math.max(0, 100 - errorRate) : 50;
+    const contribution = accuracy * weight;
+
+    weightedSum   += contribution;
+    if (errorRate !== null) coveredWeight += weight;
+
+    return {
+      name,
+      pct,
+      accuracy,            // 0-100, or 50 if unseen
+      errorRate,           // null if never attempted
+      attempted: errorRate !== null,
+      trend:     profile?.trend       || 'new',
+      scoreHistory: profile?.scoreHistory || [],
+    };
+  });
+
+  const score      = Math.round(weightedSum);
+  const coveredPct = Math.round(coveredWeight * 100);
+
+  let label;
+  if (score >= 80)      label = 'Ready';
+  else if (score >= 65) label = 'Almost Ready';
+  else if (score >= 45) label = 'Getting There';
+  else                  label = 'Not Ready';
+
+  const labelColor =
+    score >= 80 ? 'text-emerald-600' :
+    score >= 65 ? 'text-blue-600'    :
+    score >= 45 ? 'text-amber-600'   :
+                  'text-red-600';
+
+  const labelBg =
+    score >= 80 ? 'bg-emerald-50 border-emerald-200' :
+    score >= 65 ? 'bg-blue-50 border-blue-200'       :
+    score >= 45 ? 'bg-amber-50 border-amber-200'     :
+                  'bg-red-50 border-red-200';
+
+  return {
+    score,
+    label,
+    labelColor,
+    labelBg,
+    coveredPct,
+    breakdown,
+    sessions: examProfile?.sessions || 0,
+  };
 };
 
 // ─── Build adaptive prompt context ───────────────────────────────────────────
@@ -293,7 +364,7 @@ export const buildAdaptiveContext = (examType, numQuestions, blueprintTopics) =>
     };
   }).sort((a, b) => b.priority - a.priority);
 
-  const weakTopics  = scored.filter(t => t.errorRate > 40);
+  const weakTopics   = scored.filter(t => t.errorRate > 40);
   const strongTopics = scored.filter(t => t.errorRate <= 20 && t.trend !== 'new');
   const highValidationFailureTopics = scored.filter(t => t.validationFailureRate >= 30);
 
@@ -304,11 +375,11 @@ export const buildAdaptiveContext = (examType, numQuestions, blueprintTopics) =>
   const baseWeight   = numQuestions / Math.max(scored.length, 1);
   const distribution = scored.map(t => {
     let count;
-    if (t.errorRate > 60)                             count = Math.ceil(baseWeight * 1.8);
-    else if (t.errorRate > 40)                        count = Math.ceil(baseWeight * 1.4);
+    if (t.errorRate > 60)                                  count = Math.ceil(baseWeight * 1.8);
+    else if (t.errorRate > 40)                             count = Math.ceil(baseWeight * 1.4);
     else if (t.errorRate <= 20 && t.trend === 'improving') count = Math.floor(baseWeight * 0.6);
-    else if (t.errorRate <= 20)                       count = Math.floor(baseWeight * 0.8);
-    else                                              count = Math.round(baseWeight);
+    else if (t.errorRate <= 20)                            count = Math.floor(baseWeight * 0.8);
+    else                                                   count = Math.round(baseWeight);
     return { ...t, adaptiveCount: Math.max(1, count) };
   });
 

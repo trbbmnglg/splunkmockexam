@@ -1,692 +1,589 @@
 /**
  * scripts/splunk-urls.js
  *
- * FULLY VALIDATED — every URL confirmed HTTP 200 via probe workflows.
- * Last validated: March 2026 against help.splunk.com and docs.splunk.com.
+ * Source URLs for Splunk documentation ingestion into Vectorize.
+ * Used by the setup-vectorize GitHub Actions workflow.
  *
- * For 4 topics where the exact page doesn't exist in help.splunk.com 9.4
- * (add-a-form-input, about-visualization-types, about-installing-splunk-enterprise,
- * configure-scim-user-provisioning), the nearest relevant working page is used.
+ * Each entry maps to a cert's exam blueprint topics.
+ * URLs should point to the most specific page available for that topic.
  *
- * Topic names match EXAM_BLUEPRINTS in constants.js exactly.
+ * To add coverage: add URLs below, then trigger the workflow with
+ * force_reingest=false (only new URLs will be ingested).
+ *
+ * Last updated: March 2026
+ * - O11y Metrics User: expanded from 3 topics to all 8 blueprint topics
+ * - Cybersecurity Defense Engineer: expanded from 3 topics to all 6 blueprint topics
+ * - Fixed duplicate URLs between 'Metrics Concepts' and 'Get Metrics In with OpenTelemetry'
  */
 
-const S   = 'https://docs.splunk.com/Documentation/Splunk/9.4.2';
-const SR  = 'https://docs.splunk.com/Documentation/Splunk/9.4.2/SearchReference';
-const CIM = 'https://docs.splunk.com/Documentation/CIM/latest';
+// ── Base URL constants ────────────────────────────────────────────────────────
+const S   = 'https://docs.splunk.com/Documentation/Splunk/latest';
+const H   = 'https://help.splunk.com/en/search';
 const ES  = 'https://docs.splunk.com/Documentation/ES/latest';
-const SC  = 'https://docs.splunk.com/Documentation/SplunkCloud/latest';
-const H   = 'https://help.splunk.com/en/splunk-enterprise';
-const HDM = 'https://help.splunk.com/en/data-management';
+const HDM = 'https://docs.splunk.com/Documentation/Splunk/latest';
+const SOC = 'https://help.splunk.com/en/splunk-observability-cloud';
+const ES8 = 'https://help.splunk.com/en/splunk-enterprise-security-8';
 
+// ── URL list ──────────────────────────────────────────────────────────────────
 export const SPLUNK_DOC_URLS = [
 
   // ══════════════════════════════════════════════════════════════════════════
-  // CORE CERTIFIED USER — Entry-Level
+  // SPLUNK CORE CERTIFIED USER
   // ══════════════════════════════════════════════════════════════════════════
   {
-    certType: 'User', topic: 'Splunk Basics',
-    urls: [
-      `${S}/SearchTutorial/WelcometotheSearchTutorial`,
-      `${S}/SearchTutorial/Aboutthesearchapp`,
-      `${S}/SearchTutorial/Startsearching`,
-      `${H}/get-started/search-tutorial/9.4/introduction/about-the-search-tutorial`,
-    ]
-  },
-  {
-    certType: 'User', topic: 'Basic Searching',
-    urls: [
-      `${S}/Search/GetstartedwithSearch`,
-      `${S}/Search/Aboutsearchtimeranges`,
-      `${S}/Search/Usethesearchcommand`,
-      `${S}/SearchTutorial/Usefieldstosearch`,
-      `${H}/get-started/search-tutorial/9.4/part-6-creating-reports-and-charts/save-and-share-your-reports`,
-    ]
-  },
-  {
-    certType: 'User', topic: 'Using Fields in Searches',
-    urls: [
-      `${S}/Knowledge/Aboutfields`,
-      `${S}/Knowledge/Addaliasestofields`,
-      `${S}/Knowledge/Usedefaultfields`,
-      `${H}/get-started/search-tutorial/9.4/part-4-searching-the-tutorial-data/use-fields-to-search`,
-    ]
-  },
-  {
-    certType: 'User', topic: 'Search Language Fundamentals',
-    urls: [
-      `${S}/Search/Aboutthesearchlanguage`,
-      `${SR}/Search`,
-      `${S}/Search/Aboutsearchtimeranges`,
-      `${H}/search/search-manual/9.4/expressions-and-predicates/boolean-expressions-with-logical-operators`,
-      `${H}/search/spl-search-reference/9.4/quick-reference/splunk-quick-reference-guide`,
-    ]
-  },
-  {
-    certType: 'User', topic: 'Using Basic Transforming Commands',
-    urls: [
-      `${SR}/Stats`,
-      `${SR}/Chart`,
-      `${SR}/Timechart`,
-      `${SR}/Top`,
-      `${SR}/Rare`,
-      `${SR}/Table`,
-      `${SR}/Sort`,
-    ]
-  },
-  {
-    certType: 'User', topic: 'Creating Reports and Dashboards',
-    urls: [
-      `${S}/Report/Aboutreports`,
-      `${S}/Report/Createandeditreports`,
-      `${S}/Viz/PanelreferenceforSimplifiedXML`,
-      `${H}/get-started/search-tutorial/9.4/part-7-creating-dashboards/create-dashboards-and-panels`,
-      `${H}/get-started/search-tutorial/9.4/part-7-creating-dashboards/about-dashboards`,
-    ]
-  },
-  {
-    certType: 'User', topic: 'Creating and Using Lookups',
-    urls: [
-      `${S}/Knowledge/Aboutlookupsandfieldactions`,
-      `${S}/Knowledge/Makeyourlookupautomatic`,
-      `${H}/manage-knowledge-objects/knowledge-management-manual/9.4/use-lookups-in-splunk-web/define-a-csv-lookup-in-splunk-web`,
-      `${H}/manage-knowledge-objects/knowledge-management-manual/9.4/use-lookups-in-splunk-web/define-a-time-based-lookup-in-splunk-web`,
-    ]
-  },
-  {
-    certType: 'User', topic: 'Creating Scheduled Reports and Alerts',
-    urls: [
-      `${S}/Alert/Aboutalerts`,
-      `${S}/Report/Schedulereports`,
-      `${S}/Alert/Definescheduledalerts`,
-      `${S}/Alert/Alertexamples`,
-    ]
+    examType: 'User',
+    cert: 'Splunk Core Certified User',
+    topics: [
+      {
+        topic: 'Splunk Components',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Overview/WhatSplunkEnterprisedoes`,
+          `${S}/SplunkEnterprise/latest/Deploy/Distributedoverview`,
+        ],
+      },
+      {
+        topic: 'Installing and Navigating Splunk',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Installation/Chooseyourplatform`,
+          `${S}/SplunkEnterprise/latest/SearchTutorial/NavigateSplunk`,
+        ],
+      },
+      {
+        topic: 'Getting Data In',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Data/WaystogetdataintoSplunk`,
+          `${S}/SplunkEnterprise/latest/Data/Monitorfiles`,
+          `${S}/SplunkEnterprise/latest/Forwarding/Aboutforwardingandreceivingdata`,
+        ],
+      },
+      {
+        topic: 'Basic Searching',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Search/Aboutsearching`,
+          `${S}/SplunkEnterprise/latest/SearchTutorial/Startsearching`,
+          `${S}/SplunkEnterprise/latest/Search/GetstartedwithSearch`,
+        ],
+      },
+      {
+        topic: 'Using Fields in Searches',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Search/Aboutfields`,
+          `${S}/SplunkEnterprise/latest/Knowledge/Aboutfields`,
+          `${S}/SplunkEnterprise/latest/Search/Usefieldsinasearch`,
+        ],
+      },
+      {
+        topic: 'Search Language Fundamentals',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Search/Aboutthesearchlanguage`,
+          `${S}/SplunkEnterprise/latest/SearchReference/WhatsInThisManual`,
+          `${H}/spl-search-reference/9.4/spl2-search-reference/splunk-quick-reference-guide`,
+        ],
+      },
+      {
+        topic: 'Using Basic Transforming Commands',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Search/Chartresults`,
+          `${S}/SplunkEnterprise/latest/SearchReference/Stats`,
+          `${S}/SplunkEnterprise/latest/SearchReference/Top`,
+          `${S}/SplunkEnterprise/latest/SearchReference/Rare`,
+        ],
+      },
+      {
+        topic: 'Creating Reports and Dashboards',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Report/Createreports`,
+          `${S}/SplunkEnterprise/latest/SearchTutorial/Createreports`,
+          `${S}/SplunkEnterprise/latest/Viz/AboutSplunkDashboards`,
+        ],
+      },
+      {
+        topic: 'Datasets and the Common Information Model',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Knowledge/UsingtheCIM`,
+          `${S}/CommonInformationModel/latest/Getting Started`,
+        ],
+      },
+      {
+        topic: 'Creating and Using Lookups',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Knowledge/Aboutlookupsandfieldactions`,
+          `${S}/SplunkEnterprise/latest/Knowledge/Definereferencelookupsbydefault`,
+        ],
+      },
+      {
+        topic: 'Scheduled Reports and Alerts',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Alert/Aboutalerts`,
+          `${S}/SplunkEnterprise/latest/Alert/Definescheduledalerts`,
+          `${S}/SplunkEnterprise/latest/Report/Schedulereports`,
+        ],
+      },
+    ],
   },
 
   // ══════════════════════════════════════════════════════════════════════════
-  // CORE CERTIFIED POWER USER — Entry-Level
+  // SPLUNK CORE CERTIFIED POWER USER
   // ══════════════════════════════════════════════════════════════════════════
   {
-    certType: 'Power User', topic: 'Using Transforming Commands for Visualizations',
-    urls: [`${SR}/Stats`, `${SR}/Chart`, `${SR}/Timechart`, `${SR}/Eval`]
-  },
-  {
-    certType: 'Power User', topic: 'Filtering and Formatting Results',
-    urls: [`${SR}/Eval`, `${SR}/Where`, `${SR}/Fieldformat`, `${SR}/Rex`]
-  },
-  {
-    certType: 'Power User', topic: 'Correlating Events',
-    urls: [
-      `${SR}/Transaction`,
-      `${S}/Search/Abouttransactions`,
-      `${SR}/Join`,
-      `${SR}/Appendcols`,
-    ]
-  },
-  {
-    certType: 'Power User', topic: 'Creating and Managing Fields',
-    urls: [
-      `${S}/Knowledge/Aboutfields`,
-      `${H}/manage-knowledge-objects/knowledge-management-manual/9.4/fields-and-field-extractions/about-fields`,
-      `${H}/manage-knowledge-objects/knowledge-management-manual/9.4/use-the-configuration-files-to-configure-field-extractions/configure-advanced-extractions-with-field-transforms`,
-    ]
-  },
-  {
-    certType: 'Power User', topic: 'Creating Field Aliases and Calculated Fields',
-    urls: [
-      `${S}/Knowledge/Addaliasestofields`,
-      `${S}/Knowledge/definecalcfields`,
-    ]
-  },
-  {
-    certType: 'Power User', topic: 'Creating Tags and Event Types',
-    urls: [
-      `${S}/Knowledge/Abouttagsandaliases`,
-      `${S}/Knowledge/Defineeventtypes`,
-      `${S}/Knowledge/Tageventtypes`,
-    ]
-  },
-  {
-    certType: 'Power User', topic: 'Creating and Using Macros',
-    urls: [`${S}/Knowledge/Definesearchmacros`, `${S}/Knowledge/Usesearchmacros`]
-  },
-  {
-    certType: 'Power User', topic: 'Creating and Using Workflow Actions',
-    urls: [
-      `${S}/Knowledge/CreateworkflowactionsinSplunkWeb`,
-      `${H}/manage-knowledge-objects/knowledge-management-manual/9.4/workflow-actions/about-workflow-actions-in-splunk-web`,
-    ]
-  },
-  {
-    certType: 'Power User', topic: 'Creating Data Models',
-    urls: [
-      `${S}/Knowledge/Aboutdatamodels`,
-      `${H}/manage-knowledge-objects/knowledge-management-manual/9.4/build-a-data-model/about-data-models`,
-    ]
-  },
-  {
-    certType: 'Power User', topic: 'Using the Common Information Model (CIM)',
-    urls: [
-      `${CIM}/User/Overview`,
-      `${CIM}/User/UsetheCIM`,
-      `${CIM}/User/Findthecommoninformationmodel`,
-    ]
+    examType: 'Power User',
+    cert: 'Splunk Core Certified Power User',
+    topics: [
+      {
+        topic: 'Using Fields',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Knowledge/Aboutfields`,
+          `${S}/SplunkEnterprise/latest/Search/Usefieldsinasearch`,
+        ],
+      },
+      {
+        topic: 'Field Aliases and Calculated Fields',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Knowledge/Aboutfieldaliases`,
+          `${S}/SplunkEnterprise/latest/Knowledge/definecalcfields`,
+        ],
+      },
+      {
+        topic: 'Lookups',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Knowledge/Aboutlookupsandfieldactions`,
+          `${S}/SplunkEnterprise/latest/Knowledge/Definealookupwithatelemetry`,
+        ],
+      },
+      {
+        topic: 'Scheduled Reports and Alerts',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Alert/Aboutalerts`,
+          `${S}/SplunkEnterprise/latest/Alert/Definescheduledalerts`,
+        ],
+      },
+      {
+        topic: 'Statistical Processing',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Search/Chartresults`,
+          `${S}/SplunkEnterprise/latest/SearchReference/Stats`,
+          `${S}/SplunkEnterprise/latest/SearchReference/Eventstats`,
+          `${S}/SplunkEnterprise/latest/SearchReference/Streamstats`,
+        ],
+      },
+      {
+        topic: 'Comparing Values',
+        urls: [
+          `${S}/SplunkEnterprise/latest/SearchReference/Eval`,
+          `${S}/SplunkEnterprise/latest/SearchReference/Where`,
+        ],
+      },
+      {
+        topic: 'Result Modification',
+        urls: [
+          `${S}/SplunkEnterprise/latest/SearchReference/Eval`,
+          `${S}/SplunkEnterprise/latest/SearchReference/Rex`,
+          `${S}/SplunkEnterprise/latest/SearchReference/Rename`,
+        ],
+      },
+      {
+        topic: 'Correlation Analysis',
+        urls: [
+          `${S}/SplunkEnterprise/latest/SearchReference/Join`,
+          `${S}/SplunkEnterprise/latest/SearchReference/Append`,
+          `${S}/SplunkEnterprise/latest/SearchReference/Appendcols`,
+        ],
+      },
+      {
+        topic: 'Formatting Results',
+        urls: [
+          `${S}/SplunkEnterprise/latest/SearchReference/Xyseries`,
+          `${S}/SplunkEnterprise/latest/SearchReference/Untable`,
+          `${S}/SplunkEnterprise/latest/SearchReference/Table`,
+        ],
+      },
+      {
+        topic: 'Tags and Event Types',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Knowledge/Tageventsandobjects`,
+          `${S}/SplunkEnterprise/latest/Knowledge/Abouteventtypes`,
+        ],
+      },
+      {
+        topic: 'Macros',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Knowledge/Definesearchmacros`,
+          `${S}/SplunkEnterprise/latest/Knowledge/Usesearchmacros`,
+        ],
+      },
+      {
+        topic: 'Workflow Actions',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Knowledge/Aboutworkflowactions`,
+        ],
+      },
+      {
+        topic: 'Data Models',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Knowledge/Aboutdatamodels`,
+          `${S}/SplunkEnterprise/latest/Knowledge/Buildingdatamodels`,
+        ],
+      },
+      {
+        topic: 'Advanced Visualizations',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Viz/Visualizationreference`,
+          `${S}/SplunkEnterprise/latest/Viz/Chooseavisualizationtype`,
+        ],
+      },
+    ],
   },
 
   // ══════════════════════════════════════════════════════════════════════════
-  // ADVANCED POWER USER — Intermediate-Level
+  // SPLUNK ENTERPRISE CERTIFIED ADMIN
   // ══════════════════════════════════════════════════════════════════════════
   {
-    certType: 'Advanced Power User', topic: 'Exploring Statistical Commands',
-    urls: [`${SR}/Stats`, `${SR}/Eventstats`, `${SR}/Streamstats`]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Exploring eval Command Functions',
-    urls: [`${SR}/Eval`, `${SR}/CommonEvalFunctions`]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Exploring Lookups',
-    urls: [
-      `${S}/Knowledge/Aboutlookupsandfieldactions`,
-      `${H}/manage-knowledge-objects/knowledge-management-manual/9.4/use-lookups-in-splunk-web/define-a-csv-lookup-in-splunk-web`,
-    ]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Exploring Alerts',
-    urls: [`${S}/Alert/Aboutalerts`, `${S}/Alert/Definescheduledalerts`]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Advanced Field Creation and Management',
-    urls: [
-      `${S}/Knowledge/definecalcfields`,
-      `${H}/manage-knowledge-objects/knowledge-management-manual/9.4/use-the-configuration-files-to-configure-field-extractions/configure-advanced-extractions-with-field-transforms`,
-    ]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Working with Self-Describing Data and Files',
-    urls: [
-      `${S}/Knowledge/Aboutfields`,
-      `${H}/administer/admin-manual/9.4/configuration-file-reference/9.4.9-configuration-file-reference/inputs.conf`,
-    ]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Advanced Search Macros',
-    urls: [`${S}/Knowledge/Definesearchmacros`, `${S}/Knowledge/Usesearchmacros`]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Using Acceleration Options: Reports & Summary Indexing',
-    urls: [`${S}/Report/Acceleratereports`, `${S}/Knowledge/Usesummaryindexing`]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Using Acceleration Options: Data Models & tsidx',
-    urls: [`${S}/Knowledge/Acceleratedatamodels`, `${S}/Knowledge/Aboutdatamodels`]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Using Search Efficiently',
-    urls: [
-      `${S}/Search/Writebettersearches`,
-      `${H}/search/spl-search-reference/9.4/quick-reference/splunk-quick-reference-guide`,
-    ]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'More Search Tuning',
-    urls: [
-      `${S}/Search/Writebettersearches`,
-      `${H}/search/spl-search-reference/9.4/quick-reference/splunk-quick-reference-guide`,
-    ]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Manipulating and Filtering Data',
-    urls: [`${SR}/Eval`, `${SR}/Rex`, `${SR}/Regex`, `${SR}/Where`]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Working with Multivalued Fields',
-    urls: [`${SR}/Makemv`, `${SR}/Mvexpand`, `${SR}/Mvcombine`]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Using Advanced Transactions',
-    urls: [`${SR}/Transaction`, `${S}/Search/Abouttransactions`]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Working with Time',
-    urls: [
-      `${S}/Search/Aboutsearchtimeranges`,
-      `${H}/search/spl-search-reference/9.4/evaluation-functions/date-and-time-functions`,
-    ]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Using Subsearches',
-    urls: [`${S}/Search/Aboutsubsearches`, `${SR}/Appendcols`]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Creating a Prototype',
-    urls: [
-      `${S}/Viz/PanelreferenceforSimplifiedXML`,
-      `${H}/get-started/search-tutorial/9.4/part-7-creating-dashboards/about-dashboards`,
-    ]
-  },
-  {
-    // Forms: about-form-inputs and add-a-form-input don't exist at page level in 9.4.
-    // Using the simple-xml chapter index and drilldown page as nearest available.
-    certType: 'Advanced Power User', topic: 'Using Forms',
-    urls: [
-      `${H}/create-dashboards-and-reports/simple-xml-dashboards/9.4/create-dashboards-with-simple-xml`,
-      `${H}/create-dashboards-and-reports/simple-xml-dashboards/9.4/drilldown-and-dashboard-interactivity/use-drilldown-for-dashboard-interactivity`,
-    ]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Improving Performance',
-    urls: [
-      `${S}/Search/Writebettersearches`,
-      `${H}/search/spl-search-reference/9.4/quick-reference/splunk-quick-reference-guide`,
-    ]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Customizing Dashboards',
-    urls: [
-      `${S}/Viz/PanelreferenceforSimplifiedXML`,
-      `${H}/get-started/search-tutorial/9.4/part-7-creating-dashboards/about-dashboards`,
-    ]
-  },
-  {
-    certType: 'Advanced Power User', topic: 'Adding Drilldowns',
-    urls: [
-      `${H}/create-dashboards-and-reports/simple-xml-dashboards/9.4/drilldown-and-dashboard-interactivity/use-drilldown-for-dashboard-interactivity`,
-      `${H}/create-dashboards-and-reports/dashboard-studio/9.4/add-dashboard-interactions/configure-field-level-drilldowns-in-a-table`,
-    ]
-  },
-  {
-    // about-visualization-types doesn't exist at page level — using panel reference
-    certType: 'Advanced Power User', topic: 'Adding Advanced Behaviors and Visualizations',
-    urls: [
-      `${S}/Viz/PanelreferenceforSimplifiedXML`,
-      `${H}/create-dashboards-and-reports/simple-xml-dashboards/9.4/drilldown-and-dashboard-interactivity/use-drilldown-for-dashboard-interactivity`,
-    ]
+    examType: 'Enterprise Admin',
+    cert: 'Splunk Enterprise Certified Admin',
+    topics: [
+      {
+        topic: 'Splunk Licensing',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Admin/Aboutlicensingforindexers`,
+          `${S}/SplunkEnterprise/latest/Admin/Howlicensingworks`,
+        ],
+      },
+      {
+        topic: 'Splunk Configuration Files',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Admin/Aboutconfigurationfiles`,
+          `${S}/SplunkEnterprise/latest/Admin/Configurationfiledirectoriesandfiles`,
+          `${S}/SplunkEnterprise/latest/Admin/Wheretofindtheconfigurationfiles`,
+        ],
+      },
+      {
+        topic: 'User Management',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Security/Aboutusersandroles`,
+          `${S}/SplunkEnterprise/latest/Security/Addandeditroles`,
+          `${S}/SplunkEnterprise/latest/Security/Securepasswords`,
+        ],
+      },
+      {
+        topic: 'Getting Data In',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Data/WaystogetdataintoSplunk`,
+          `${S}/SplunkEnterprise/latest/Data/Monitorfiles`,
+          `${S}/SplunkEnterprise/latest/Data/Configuredatamonitor`,
+        ],
+      },
+      {
+        topic: 'Forwarder Management',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Forwarding/Aboutforwardingandreceivingdata`,
+          `${S}/SplunkEnterprise/latest/Forwarding/Enableaforwarder`,
+          `${S}/SplunkEnterprise/latest/Forwarding/Configureforwardingwithoutputs.conf`,
+        ],
+      },
+      {
+        topic: 'Index Management',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Indexer/Aboutindexesandindexers`,
+          `${S}/SplunkEnterprise/latest/Indexer/Setupmultipleindexes`,
+          `${S}/SplunkEnterprise/latest/Indexer/Configuredataretention`,
+        ],
+      },
+      {
+        topic: 'Distributed Search',
+        urls: [
+          `${S}/SplunkEnterprise/latest/DistSearch/Whatisdistributedsearch`,
+          `${S}/SplunkEnterprise/latest/DistSearch/Configuredistributedsearch`,
+        ],
+      },
+      {
+        topic: 'Basic Cluster Administration',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Indexer/Aboutindexerclusters`,
+          `${S}/SplunkEnterprise/latest/Indexer/Managingindexerclusterupdates`,
+        ],
+      },
+      {
+        topic: 'Deployment Server',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Updating/Aboutdeploymentserver`,
+          `${S}/SplunkEnterprise/latest/Updating/Updateconfigurations`,
+        ],
+      },
+      {
+        topic: 'Monitoring Splunk',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Admin/AboutMonitoringConsole`,
+          `${S}/SplunkEnterprise/latest/Admin/Abouttheauditlog`,
+        ],
+      },
+    ],
   },
 
   // ══════════════════════════════════════════════════════════════════════════
-  // ENTERPRISE ADMIN — Professional-Level
+  // SPLUNK CLOUD CERTIFIED ADMIN
   // ══════════════════════════════════════════════════════════════════════════
   {
-    // about-installing page not found in 9.4 — using overview page
-    certType: 'Enterprise Admin', topic: 'Splunk Admin Basics',
-    urls: [
-      `${H}/get-started/overview/9.4/about-splunk-enterprise/about-splunk-enterprise`,
-      `${H}/get-started/overview/9.4/about-splunk-enterprise/about-splunk-enterprise-deployments`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'License Management',
-    urls: [
-      `${H}/get-started/install-and-upgrade/9.4/install-a-splunk-enterprise-license/about-splunk-enterprise-licenses`,
-      `${H}/get-started/install-and-upgrade/9.4/install-a-splunk-enterprise-license/install-a-license`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'Splunk Configuration Files',
-    urls: [
-      `${S}/Admin/Aboutconfigurationfiles`,
-      `${S}/Admin/Wheretofindtheconfigurationfiles`,
-      `${HDM}/splunk-enterprise-admin-manual/9.4/administer-splunk-enterprise-with-configuration-files/configuration-file-precedence`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'Splunk Indexes',
-    urls: [
-      `${S}/Indexer/Aboutindexesandindexers`,
-      `${S}/Indexer/Setupmultipleindexes`,
-      `${HDM}/manage-splunk-enterprise-indexers/9.4/manage-index-storage/configure-index-storage`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'Splunk User Management',
-    urls: [
-      `${S}/Security/Addandeditusers`,
-      `${HDM}/splunk-enterprise-admin-manual/9.4/manage-users/about-users-and-roles`,
-    ]
-  },
-  {
-    // configure-scim not found in 9.4 — using LDAP auth page (same topic area)
-    certType: 'Enterprise Admin', topic: 'Splunk Authentication Management',
-    urls: [
-      `${H}/administer/manage-users-and-security/9.4/use-ldap-as-an-authentication-scheme/set-up-user-authentication-with-ldap`,
-      `${HDM}/splunk-enterprise-admin-manual/9.4/manage-users/about-users-and-roles`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'Getting Data In',
-    urls: [
-      `${S}/Data/WhatSplunkcanmonitor`,
-      `${S}/Data/Usingforwardingagents`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'Distributed Search',
-    urls: [
-      `${S}/DistSearch/Whatisdistributedsearch`,
-      `${H}/administer/distributed-search/9.4/deploy-distributed-search/system-requirements-and-other-deployment-considerations-for-distributed-search`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'Getting Data In – Staging',
-    urls: [
-      `${S}/Forwarding/Typesofforwarders`,
-      `${H}/get-started/get-data-in/9.4/introduction`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'Configuring Forwarders',
-    urls: [
-      'https://docs.splunk.com/Documentation/Forwarder/9.4.2/Forwarder/Abouttheuniversalforwarder',
-      `${S}/Forwarding/Aboutforwardingandreceivingdata`,
-      `${H}/forward-and-process-data/forwarding-and-receiving-data/9.4/configure-forwarders/configure-forwarding-with-outputs.conf`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'Forwarder Management',
-    urls: [
-      `${S}/Updating/Aboutdeploymentserver`,
-      `${S}/Updating/Configuredeploymentclients`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'Monitor Inputs',
-    urls: [
-      `${S}/Data/MonitorfilesanddirectorieswithSplunkWeb`,
-      `${S}/Data/Monitorfilesanddirectories`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'Network and Scripted Inputs',
-    urls: [
-      `${S}/Data/Monitornetworkports`,
-      `${H}/get-started/get-data-in/9.4/get-other-kinds-of-data-in/get-data-from-apis-and-other-remote-data-interfaces-through-scripted-inputs`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'Agentless Inputs',
-    urls: [
-      `${S}/Data/UsetheHTTPEventCollector`,
-      `${H}/get-started/get-data-in/9.4/introduction/how-splunk-enterprise-handles-your-data`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'Fine Tuning Inputs',
-    urls: [
-      `${H}/get-started/get-data-in/9.4/configure-source-types`,
-      `${H}/administer/admin-manual/9.4/configuration-file-reference/9.4.9-configuration-file-reference/inputs.conf`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'Parsing Phase and Data',
-    urls: [
-      `${H}/get-started/get-data-in/9.4/configure-event-processing`,
-      `${H}/get-started/get-data-in/9.4/configure-event-processing/configure-event-line-breaking`,
-    ]
-  },
-  {
-    certType: 'Enterprise Admin', topic: 'Manipulating Raw Data',
-    urls: [
-      `${H}/get-data-in/get-started-with-getting-data-in/9.4/configure-event-processing/anonymize-data`,
-      `${H}/get-started/get-data-in/9.4/configure-event-processing/anonymize-data`,
-    ]
+    examType: 'Cloud Admin',
+    cert: 'Splunk Cloud Certified Admin',
+    topics: [
+      {
+        topic: 'Splunk Cloud Overview',
+        urls: [
+          `${S}/SplunkCloud/latest/Admin/SplunkCloudoverview`,
+          `${S}/SplunkCloud/latest/Admin/SharedResponsibilities`,
+        ],
+      },
+      {
+        topic: 'User and Role Management',
+        urls: [
+          `${S}/SplunkCloud/latest/Admin/ManageRoles`,
+          `${S}/SplunkCloud/latest/Admin/InviteUsers`,
+          `${S}/SplunkCloud/latest/Admin/ManageUsers`,
+        ],
+      },
+      {
+        topic: 'Data Management',
+        urls: [
+          `${S}/SplunkCloud/latest/Admin/ManageIndices`,
+          `${S}/SplunkCloud/latest/Admin/RetrievingData`,
+        ],
+      },
+      {
+        topic: 'Forwarder Management',
+        urls: [
+          `${S}/SplunkCloud/latest/Admin/ManageForwarders`,
+          `${S}/SplunkCloud/latest/Admin/CloudForwarderRequirements`,
+        ],
+      },
+      {
+        topic: 'Splunk Cloud Apps and Add-ons',
+        urls: [
+          `${S}/SplunkCloud/latest/Admin/ManageApps`,
+          `${S}/SplunkCloud/latest/Admin/SelfServiceApps`,
+        ],
+      },
+      {
+        topic: 'Monitoring and Alerts',
+        urls: [
+          `${S}/SplunkCloud/latest/Admin/MonitorSplunkCloudPlatform`,
+          `${S}/SplunkCloud/latest/Admin/SetAlerts`,
+        ],
+      },
+    ],
   },
 
   // ══════════════════════════════════════════════════════════════════════════
-  // CLOUD ADMIN — Professional-Level
+  // SPLUNK ENTERPRISE CERTIFIED ARCHITECT
   // ══════════════════════════════════════════════════════════════════════════
   {
-    certType: 'Cloud Admin', topic: 'Splunk Cloud Overview',
-    urls: [
-      `${H}/get-started/overview/9.4/about-splunk-enterprise/about-splunk-enterprise`,
-      `${H}/get-started/overview/9.4/about-splunk-enterprise/about-splunk-enterprise-deployments`,
-    ]
-  },
-  {
-    certType: 'Cloud Admin', topic: 'Index Management',
-    urls: [
-      `${SC}/Admin/ManageIndexes`,
-      `${S}/Indexer/Setupmultipleindexes`,
-    ]
-  },
-  {
-    certType: 'Cloud Admin', topic: 'User Authentication and Authorization',
-    urls: [
-      `${SC}/Security/Rolesandcapabilities`,
-      `${H}/administer/manage-users-and-security/9.4/use-ldap-as-an-authentication-scheme/set-up-user-authentication-with-ldap`,
-    ]
-  },
-  {
-    certType: 'Cloud Admin', topic: 'Splunk Configuration Files',
-    urls: [
-      `${S}/Admin/Aboutconfigurationfiles`,
-      `${HDM}/splunk-enterprise-admin-manual/9.4/administer-splunk-enterprise-with-configuration-files/configuration-file-precedence`,
-    ]
-  },
-  {
-    certType: 'Cloud Admin', topic: 'Getting Data in Cloud',
-    urls: [
-      `${S}/Data/WhatSplunkcanmonitor`,
-      `${S}/Data/MonitorfilesanddirectorieswithSplunkWeb`,
-    ]
-  },
-  {
-    certType: 'Cloud Admin', topic: 'Forwarder Management',
-    urls: [
-      `${S}/Forwarding/Aboutforwardingandreceivingdata`,
-      `${S}/Updating/Aboutdeploymentserver`,
-    ]
-  },
-  {
-    certType: 'Cloud Admin', topic: 'Monitor Inputs',
-    urls: [
-      `${S}/Data/MonitorfilesanddirectorieswithSplunkWeb`,
-      `${S}/Data/Monitorfilesanddirectories`,
-    ]
-  },
-  {
-    certType: 'Cloud Admin', topic: 'Network and Other Inputs',
-    urls: [
-      `${S}/Data/Monitornetworkports`,
-      `${S}/Data/UsetheHTTPEventCollector`,
-    ]
-  },
-  {
-    certType: 'Cloud Admin', topic: 'Fine-tuning Inputs',
-    urls: [
-      `${H}/get-started/get-data-in/9.4/configure-source-types`,
-      `${H}/administer/admin-manual/9.4/configuration-file-reference/9.4.9-configuration-file-reference/inputs.conf`,
-    ]
-  },
-  {
-    certType: 'Cloud Admin', topic: 'Parsing Phase and Data Preview',
-    urls: [
-      `${H}/get-started/get-data-in/9.4/configure-event-processing`,
-      `${H}/get-started/get-data-in/9.4/configure-event-processing/configure-event-line-breaking`,
-    ]
-  },
-  {
-    certType: 'Cloud Admin', topic: 'Manipulating Raw Data',
-    urls: [
-      `${H}/get-data-in/get-started-with-getting-data-in/9.4/configure-event-processing/anonymize-data`,
-      `${H}/get-started/get-data-in/9.4/configure-event-processing/anonymize-data`,
-    ]
-  },
-  {
-    certType: 'Cloud Admin', topic: 'Installing and Managing Apps',
-    urls: [
-      `${SC}/Admin/SelfServiceAppInstall`,
-      `${SC}/Admin/PrivateApps`,
-    ]
-  },
-  {
-    certType: 'Cloud Admin', topic: 'Working with Splunk Cloud Support',
-    urls: [
-      `${H}/get-started/overview/9.4/splunk-enterprise-resources-and-documentation/support-and-resources-for-splunk-enterprise`,
-      `${H}/get-started/overview/9.4/about-splunk-enterprise/about-splunk-enterprise`,
-    ]
+    examType: 'Enterprise Architect',
+    cert: 'Splunk Enterprise Certified Architect',
+    topics: [
+      {
+        topic: 'Splunk Deployment Planning',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Deploy/Distributedoverview`,
+          `${S}/SplunkEnterprise/latest/Deploy/Plandeployment`,
+        ],
+      },
+      {
+        topic: 'Indexer Clustering',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Indexer/Aboutindexerclusters`,
+          `${S}/SplunkEnterprise/latest/Indexer/Setupthecaptainnode`,
+          `${S}/SplunkEnterprise/latest/Indexer/Maintainanindexercluster`,
+        ],
+      },
+      {
+        topic: 'Search Head Clustering',
+        urls: [
+          `${S}/SplunkEnterprise/latest/DistSearch/AboutSHC`,
+          `${S}/SplunkEnterprise/latest/DistSearch/DeploySHC`,
+          `${S}/SplunkEnterprise/latest/DistSearch/ManageSHC`,
+        ],
+      },
+      {
+        topic: 'SmartStore',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Indexer/AboutSmartStore`,
+          `${S}/SplunkEnterprise/latest/Indexer/DeploySmartStore`,
+        ],
+      },
+      {
+        topic: 'Capacity Planning and Performance',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Deploy/Estimatingindexvolume`,
+          `${S}/SplunkEnterprise/latest/Deploy/ReferenceHardware`,
+        ],
+      },
+      {
+        topic: 'Splunk Security Architecture',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Security/Aboutsecurity`,
+          `${S}/SplunkEnterprise/latest/Security/Securingyourdeployment`,
+        ],
+      },
+    ],
   },
 
   // ══════════════════════════════════════════════════════════════════════════
-  // ENTERPRISE ARCHITECT — Expert-Level
+  // O11Y METRICS USER (Splunk Observability Cloud)
+  // Previously: 3 topics with 2 sharing identical URLs
+  // Now: all 8 blueprint topics with distinct, specific URLs
   // ══════════════════════════════════════════════════════════════════════════
   {
-    certType: 'Enterprise Architect', topic: 'Infrastructure Planning: Index Design',
-    urls: [
-      `${S}/Indexer/Setupmultipleindexes`,
-      `${S}/Indexer/Aboutindexesandindexers`,
-    ]
-  },
-  {
-    certType: 'Enterprise Architect', topic: 'Infrastructure Planning: Resource Planning',
-    urls: [
-      `${S}/Capacity/Referencehardware`,
-      `${H}/get-started/deployment-capacity-manual/9.4/introduction/introduction-to-capacity-planning-for-splunk-enterprise`,
-    ]
-  },
-  {
-    certType: 'Enterprise Architect', topic: 'Large-scale Splunk Deployment Overview',
-    urls: [
-      `${S}/Indexer/Basicclusterarchitecture`,
-      `${H}/get-started/deployment-capacity-manual/9.4/introduction/introduction-to-capacity-planning-for-splunk-enterprise`,
-    ]
-  },
-  {
-    certType: 'Enterprise Architect', topic: 'Forwarder and Deployment Best Practices',
-    urls: [
-      `${S}/Updating/Aboutdeploymentserver`,
-      `${S}/Forwarding/Aboutforwardingandreceivingdata`,
-    ]
-  },
-  {
-    certType: 'Enterprise Architect', topic: 'Single-site Indexer Cluster',
-    urls: [
-      `${S}/Indexer/Aboutclusters`,
-      `${S}/Indexer/Basicclusterarchitecture`,
-      `${H}/administer/manage-indexers-and-indexer-clusters/9.4/configure-the-manager-node/configure-the-manager-node-with-server.conf`,
-    ]
-  },
-  {
-    certType: 'Enterprise Architect', topic: 'Multisite Indexer Cluster',
-    urls: [
-      `${S}/Indexer/Multisiteclusters`,
-      `${S}/Indexer/Migratetomultisite`,
-    ]
-  },
-  {
-    certType: 'Enterprise Architect', topic: 'Indexer Cluster Management and Administration',
-    urls: [
-      `${H}/administer/manage-indexers-and-indexer-clusters/9.4/configure-the-indexer-cluster/indexer-cluster-configuration-overview`,
-      `${H}/administer/manage-indexers-and-indexer-clusters/9.4/manage-the-indexer-cluster`,
-    ]
-  },
-  {
-    certType: 'Enterprise Architect', topic: 'Search Head Cluster',
-    urls: [
-      `${S}/DistSearch/AboutSHC`,
-      `${H}/administer/distributed-search/9.4/deploy-search-head-clustering/deploy-a-search-head-cluster`,
-    ]
-  },
-  {
-    certType: 'Enterprise Architect', topic: 'Search Head Cluster Management and Administration',
-    urls: [
-      `${S}/DistSearch/SHCarchitecture`,
-      `${H}/administer/distributed-search/9.4/deploy-search-head-clustering/deploy-a-search-head-cluster`,
-    ]
+    examType: 'O11y Metrics User',
+    cert: 'Splunk O11y Cloud Certified Metrics User',
+    topics: [
+      {
+        topic: 'Metrics Concepts',
+        urls: [
+          `${SOC}/manage-data/metrics-metadata-and-events/metrics-in-splunk-observability-cloud`,
+          `${SOC}/get-started/splunk-observability-cloud-overview/splunk-observability-cloud-overview`,
+        ],
+      },
+      {
+        topic: 'Get Metrics In with OpenTelemetry',
+        urls: [
+          // Distinct from Metrics Concepts — focuses on OTel ingestion, not metric types
+          `${SOC}/get-started/send-data/get-started-send-data`,
+          `${SOC}/get-started/splunk-observability-cloud-overview/splunk-observability-cloud-overview`,
+        ],
+      },
+      {
+        topic: 'Monitor Using Built-in Content',
+        urls: [
+          `${SOC}/create-dashboards-and-charts/create-dashboards/built-in-dashboards`,
+          `${SOC}/monitor-infrastructure/use-navigators`,
+          `${SOC}/monitor-infrastructure/use-navigators/available-navigators`,
+        ],
+      },
+      {
+        topic: 'Introduction to Visualizing Metrics',
+        urls: [
+          `${SOC}/create-dashboards-and-charts/create-dashboards/built-in-dashboards`,
+          `${SOC}/create-dashboards-and-charts/create-dashboards/available-dashboards`,
+        ],
+      },
+      {
+        topic: 'Create Efficient Dashboards and Alerts',
+        urls: [
+          `${SOC}/create-alerts-detectors-and-service-level-objectives/create-alerts-and-detectors/best-practices-for-creating-detectors`,
+          `${SOC}/create-dashboards-and-charts/create-dashboards/built-in-dashboards`,
+        ],
+      },
+      {
+        topic: 'Introduction to Alerting on Metrics with Detectors',
+        urls: [
+          'https://docs.splunk.com/observability/alerts-detectors-notifications/alerts-and-detectors/alerts-detectors-notifications.html',
+          `${SOC}/create-alerts-detectors-and-service-level-objectives/create-alerts-and-detectors/best-practices-for-creating-detectors`,
+          `${SOC}/create-alerts-detectors-and-service-level-objectives/create-alerts-and-detectors/alerts-and-detectors`,
+        ],
+      },
+      {
+        topic: 'Finding Insights Using Analytics',
+        urls: [
+          `${SOC}/manage-data/metrics-metadata-and-events/metrics-in-splunk-observability-cloud`,
+          `${SOC}/monitor-infrastructure/use-navigators`,
+        ],
+      },
+      {
+        topic: 'Detectors for Common Use Cases',
+        urls: [
+          `${SOC}/create-alerts-detectors-and-service-level-objectives/create-alerts-and-detectors/best-practices-for-creating-detectors`,
+          `${SOC}/create-alerts-detectors-and-service-level-objectives/create-alerts-and-detectors/alerts-and-detectors`,
+          'https://docs.splunk.com/observability/alerts-detectors-notifications/alerts-and-detectors/alerts-detectors-notifications.html',
+        ],
+      },
+    ],
   },
 
   // ══════════════════════════════════════════════════════════════════════════
-  // O11y METRICS USER — Foundational-Level
+  // CYBERSECURITY DEFENSE ENGINEER
+  // Previously: 3 topics covered, 3 missing entirely
+  // Now: all 6 blueprint topics covered with ES 8.x docs
   // ══════════════════════════════════════════════════════════════════════════
   {
-    certType: 'O11y Metrics User', topic: 'Get Metrics In with OpenTelemetry',
-    urls: [
-      `${S}/Metrics/Overview`,
-      `${HDM}/get-data-in/get-data-into-splunk-enterprise/9.4/get-data-with-http-event-collector/send-metrics-to-a-metrics-index`,
-    ]
-  },
-  {
-    certType: 'O11y Metrics User', topic: 'Metrics Concepts',
-    urls: [
-      `${S}/Metrics/Overview`,
-      `${HDM}/get-data-in/get-data-into-splunk-enterprise/9.4/get-data-with-http-event-collector/send-metrics-to-a-metrics-index`,
-    ]
-  },
-  {
-    certType: 'O11y Metrics User', topic: 'Introduction to Alerting on Metrics with Detectors',
-    urls: [`${S}/Alert/Aboutalerts`, `${S}/Alert/Definescheduledalerts`]
+    examType: 'Cybersecurity Defense Engineer',
+    cert: 'Splunk Certified Cybersecurity Defense Engineer',
+    topics: [
+      {
+        topic: 'SPL and Efficient Searching',
+        urls: [
+          `${S}/SplunkEnterprise/latest/Search/Writebettersearches`,
+          `${H}/spl-search-reference/9.4/spl2-search-reference/splunk-quick-reference-guide`,
+        ],
+      },
+      {
+        topic: 'Investigation, Event Handling, Correlation, and Risk',
+        urls: [
+          `${ES8}/user-guide/8.1/analytics/threat-intelligence-dashboards`,
+          `${ES8}/administer/8.1/detections/use-detections-to-search-for-threats-in-splunk-enterprise-security`,
+          `${ES}/User/Aboutnotableevents`,
+          `${ES}/User/Triagenotableevents`,
+        ],
+      },
+      {
+        topic: 'Threat Detection and Investigation',
+        urls: [
+          `${ES8}/administer/8.1/detections/use-detections-to-search-for-threats-in-splunk-enterprise-security`,
+          `${ES8}/administer/8.4/threat-intelligence/add-new-threat-intelligence-sources-in-splunk-enterprise-security`,
+          `${ES}/User/Useriskoverview`,
+          `${ES}/User/Investigatethreat`,
+        ],
+      },
+      {
+        // NEW — was missing entirely
+        topic: 'The Cyber Landscape, Frameworks, and Standards',
+        urls: [
+          `${ES8}/administer/8.1/detections/use-detections-to-search-for-threats-in-splunk-enterprise-security`,
+          `${ES8}/administer/8.4/threat-intelligence/add-new-threat-intelligence-sources-in-splunk-enterprise-security`,
+          `${ES8}/user-guide/8.1/analytics/threat-intelligence-dashboards`,
+        ],
+      },
+      {
+        // NEW — was missing entirely
+        topic: 'Threat and Attack Types, Motivations, and Tactics',
+        urls: [
+          `${ES8}/administer/8.4/threat-intelligence/add-new-threat-intelligence-sources-in-splunk-enterprise-security`,
+          `${ES8}/administer/8.2/threat-intelligence/configure-threat-lists-in-splunk-enterprise-security`,
+          `${ES8}/user-guide/8.1/analytics/threat-intelligence-dashboards`,
+        ],
+      },
+      {
+        // NEW — was missing entirely
+        topic: 'Defenses, Data Sources, and SIEM Best Practices',
+        urls: [
+          `${ES8}/administer/8.2/threat-intelligence/configure-threat-lists-in-splunk-enterprise-security`,
+          `${ES8}/administer/8.1/detections/use-detections-to-search-for-threats-in-splunk-enterprise-security`,
+          `${ES8}/user-guide/8.1/analytics/threat-intelligence-dashboards`,
+        ],
+      },
+    ],
   },
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // CYBERSECURITY DEFENSE ENGINEER — Intermediate-Level
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    certType: 'Cybersecurity Defense Engineer', topic: 'SPL and Efficient Searching',
-    urls: [
-      `${S}/Search/Writebettersearches`,
-      `${H}/search/spl-search-reference/9.4/quick-reference/splunk-quick-reference-guide`,
-    ]
-  },
-  {
-    certType: 'Cybersecurity Defense Engineer', topic: 'Investigation, Event Handling, Correlation, and Risk',
-    urls: [`${ES}/User/Aboutnotableevents`, `${ES}/User/Triagenotableevents`]
-  },
-  {
-    certType: 'Cybersecurity Defense Engineer', topic: 'Threat Detection and Investigation',
-    urls: [`${ES}/User/Useriskoverview`, `${ES}/User/Investigatethreat`]
-  },
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // CONSULTANT — Expert-Level
-  // ══════════════════════════════════════════════════════════════════════════
-  {
-    certType: 'Consultant', topic: 'Deploying Splunk',
-    urls: [
-      `${S}/Installation/Systemrequirements`,
-      `${H}/get-started/overview/9.4/about-splunk-enterprise/about-splunk-enterprise`,
-    ]
-  },
-  {
-    certType: 'Consultant', topic: 'Monitoring Console',
-    urls: [
-      `${H}/administer/monitor/9.4/about-the-monitoring-console/about-the-monitoring-console`,
-      `${H}/administer/monitor/9.4/about-the-monitoring-console/about-the-monitoring-console`,
-    ]
-  },
-  {
-    certType: 'Consultant', topic: 'Access and Roles',
-    urls: [
-      `${S}/Security/Addandeditusers`,
-      `${HDM}/splunk-enterprise-admin-manual/9.4/manage-users/about-users-and-roles`,
-    ]
-  },
-  {
-    certType: 'Consultant', topic: 'Data Collection',
-    urls: [`${S}/Data/WhatSplunkcanmonitor`, `${S}/Data/Usingforwardingagents`]
-  },
-  {
-    certType: 'Consultant', topic: 'Indexing',
-    urls: [`${S}/Indexer/Aboutindexesandindexers`, `${S}/Indexer/Setupmultipleindexes`]
-  },
-  {
-    certType: 'Consultant', topic: 'Search',
-    urls: [`${S}/Search/Writebettersearches`, `${S}/DistSearch/Whatisdistributedsearch`]
-  },
-  {
-    certType: 'Consultant', topic: 'Configuration Management',
-    urls: [`${S}/Admin/Aboutconfigurationfiles`, `${S}/Updating/Aboutdeploymentserver`]
-  },
-  {
-    certType: 'Consultant', topic: 'Indexer Clustering',
-    urls: [
-      `${S}/Indexer/Aboutclusters`,
-      `${H}/administer/manage-indexers-and-indexer-clusters/9.4/configure-the-indexer-cluster/indexer-cluster-configuration-overview`,
-    ]
-  },
-  {
-    certType: 'Consultant', topic: 'Search Head Clustering',
-    urls: [`${S}/DistSearch/AboutSHC`, `${S}/DistSearch/SHCarchitecture`]
-  },
 ];
 
-export const splunkDocs = SPLUNK_DOC_URLS;
+// ── Flatten to a simple array of { url, examType, topic } for the ingestor ───
+export const flattenUrls = () => {
+  const result = [];
+  for (const cert of SPLUNK_DOC_URLS) {
+    for (const topicEntry of cert.topics) {
+      for (const url of topicEntry.urls) {
+        result.push({
+          url,
+          examType: cert.examType,
+          topic:    topicEntry.topic,
+          cert:     cert.cert,
+        });
+      }
+    }
+  }
+  // Deduplicate by URL — same page may appear under multiple topics
+  const seen = new Set();
+  return result.filter(entry => {
+    if (seen.has(entry.url)) return false;
+    seen.add(entry.url);
+    return true;
+  });
+};

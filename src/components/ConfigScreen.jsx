@@ -1,6 +1,7 @@
-import { Settings, X, ChevronRight, ListChecks, Clock, BookOpen, Cpu, Key, Lock, CheckCircle, ShieldCheck, Globe, Zap, RotateCcw, ExternalLink, Flame } from 'lucide-react';
-import { TOPICS, EXAM_BLUEPRINTS, API_KEY_URLS, PRODUCT_CONTEXT_MAP, CURRENT_YEAR, YEAR_RANGE } from '../utils/constants';
+import { Settings, X, ChevronRight, ListChecks, Clock, BookOpen, Cpu, Key, Lock, CheckCircle, ShieldCheck, Globe, Zap, RotateCcw, ExternalLink, Target } from 'lucide-react';
+import { TOPICS, EXAM_BLUEPRINTS, API_KEY_URLS, CURRENT_YEAR, YEAR_RANGE } from '../utils/constants';
 import { DEFAULT_GROQ_KEY } from '../utils/api';
+import { computeExamReadiness } from '../utils/agentAdaptive';
 import BlueprintPanel from './BlueprintPanel';
 
 export default function ConfigScreen({
@@ -16,7 +17,7 @@ export default function ConfigScreen({
   setShowAdvanced,
   onBack,
   onStart,
-  usageInfo,   // { count, limit, remaining, resetAt, exceeded } — null for own-key users
+  usageInfo,
 }) {
   const toggleTopic = (topic) => {
     setExamConfig(prev => {
@@ -27,9 +28,9 @@ export default function ConfigScreen({
     });
   };
 
-  // ── Usage indicator helpers ────────────────────────────────────────────────
-  const showUsage = usageInfo !== null && usageInfo !== undefined;
-  const remaining = usageInfo?.remaining ?? 0;
+  // ── Usage indicator ────────────────────────────────────────────────────────
+  const showUsage    = usageInfo !== null && usageInfo !== undefined;
+  const remaining    = usageInfo?.remaining ?? 0;
   const usageExceeded = usageInfo?.exceeded ?? false;
 
   const usageColor = usageExceeded
@@ -50,6 +51,11 @@ export default function ConfigScreen({
       })
     : 'midnight UTC';
 
+  // ── Readiness score ────────────────────────────────────────────────────────
+  const bp        = examType ? EXAM_BLUEPRINTS[examType] : null;
+  const readiness = computeExamReadiness(examType, bp?.topics);
+  const showReadiness = readiness && readiness.sessions > 0;
+
   return (
     <div className="max-w-3xl mx-auto w-full animate-fade-in bg-white shadow-xl p-6 md:p-10 border border-slate-100 rounded-lg">
       <div className="flex items-center justify-between mb-8 border-b border-slate-100 pb-6">
@@ -65,9 +71,9 @@ export default function ConfigScreen({
         </button>
       </div>
 
-      {/* ── Usage indicator (shared-key users only) ── */}
+      {/* ── Usage indicator ── */}
       {showUsage && (
-        <div className={`flex items-center justify-between p-3 rounded-lg border mb-6 text-sm font-medium ${usageColor}`}>
+        <div className={`flex items-center justify-between p-3 rounded-lg border mb-4 text-sm font-medium ${usageColor}`}>
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${usageDotColor}`} />
             {usageExceeded
@@ -85,6 +91,26 @@ export default function ConfigScreen({
               Get free API key <ExternalLink className="w-3 h-3" />
             </a>
           )}
+        </div>
+      )}
+
+      {/* ── Readiness score indicator ── */}
+      {showReadiness && (
+        <div className={`flex items-center justify-between p-3 rounded-lg border mb-6 ${readiness.labelBg}`}>
+          <div className="flex items-center gap-2.5">
+            <Target className={`w-4 h-4 flex-shrink-0 ${readiness.labelColor}`} />
+            <div>
+              <span className={`text-sm font-bold ${readiness.labelColor}`}>
+                Readiness: {readiness.score}%
+              </span>
+              <span className="text-xs text-slate-500 ml-2">
+                ({readiness.coveredPct}% of blueprint covered across {readiness.sessions} session{readiness.sessions !== 1 ? 's' : ''})
+              </span>
+            </div>
+          </div>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${readiness.labelBg} ${readiness.labelColor}`}>
+            {readiness.label}
+          </span>
         </div>
       )}
 
@@ -150,6 +176,12 @@ export default function ConfigScreen({
           <div className="grid sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto p-1 pr-2">
             {TOPICS[examType].map((topic, idx) => {
               const isSelected = examConfig.selectedTopics.includes(topic);
+
+              // Show per-topic readiness hint if we have profile data
+              const topicReadiness = readiness?.breakdown?.find(t => t.name === topic);
+              const hasData  = topicReadiness?.attempted;
+              const accuracy = topicReadiness?.accuracy;
+
               return (
                 <div
                   key={idx}
@@ -159,7 +191,33 @@ export default function ConfigScreen({
                   <div className={`mt-0.5 flex-shrink-0 w-5 h-5 border rounded flex items-center justify-center transition-colors ${isSelected ? 'bg-pink-500 border-pink-500' : 'border-slate-300'}`}>
                     {isSelected && <CheckCircle className="w-3.5 h-3.5 text-white" />}
                   </div>
-                  <span className={`text-sm font-medium ${isSelected ? 'text-pink-900' : 'text-slate-700'}`}>{topic}</span>
+                  <div className="flex-grow min-w-0">
+                    <span className={`text-sm font-medium ${isSelected ? 'text-pink-900' : 'text-slate-700'}`}>{topic}</span>
+                    {hasData && (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <div className="flex-grow h-1 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              accuracy >= 80 ? 'bg-emerald-400' :
+                              accuracy >= 60 ? 'bg-blue-400'    :
+                              accuracy >= 40 ? 'bg-amber-400'   :
+                                              'bg-red-400'
+                            }`}
+                            style={{ width: `${accuracy}%` }}
+                          />
+                        </div>
+                        <span className={`text-xs font-semibold flex-shrink-0 ${
+                          accuracy >= 80 ? 'text-emerald-600' :
+                          accuracy >= 60 ? 'text-blue-600'    :
+                          accuracy >= 40 ? 'text-amber-600'   :
+                                          'text-red-600'
+                        }`}>{accuracy}%</span>
+                      </div>
+                    )}
+                    {!hasData && showReadiness && (
+                      <span className="text-xs text-slate-400 mt-0.5 block">not yet attempted</span>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -181,7 +239,6 @@ export default function ConfigScreen({
 
           {showAdvanced && (
             <div className="mt-6 bg-slate-50 p-6 border border-slate-200 rounded animate-fade-in shadow-inner space-y-6">
-              {/* Provider selector */}
               <div>
                 <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center uppercase tracking-wider">
                   <Cpu className="w-4 h-4 mr-2 text-pink-500" /> AI Generator Engine
@@ -204,7 +261,6 @@ export default function ConfigScreen({
                   ))}
                 </div>
 
-                {/* API key input */}
                 <div className="relative animate-fade-in">
                   <div className="flex justify-between items-end mb-2">
                     <label className="block text-sm font-semibold text-slate-700 flex items-center">
@@ -243,7 +299,6 @@ export default function ConfigScreen({
                 )}
               </div>
 
-              {/* Prompt editor */}
               <div className="border-t border-slate-200 pt-6">
                 <div className="flex justify-between items-center mb-2">
                   <h3 className="text-sm font-bold text-slate-800 flex items-center uppercase tracking-wider">

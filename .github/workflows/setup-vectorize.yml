@@ -1,18 +1,3 @@
-# .github/workflows/setup-vectorize.yml
-#
-# One-time setup workflow for Layer 2 RAG ingestion.
-# Run this ONCE after creating the Vectorize index in the Cloudflare dashboard.
-#
-# Trigger: Manual only (workflow_dispatch)
-# Go to: GitHub repo → Actions → "Layer 2: Setup Vectorize & Ingest Docs" → Run workflow
-#
-# Required GitHub Secrets (Settings → Secrets and variables → Actions):
-#   CF_API_TOKEN   — Cloudflare API token with Workers AI + Vectorize permissions
-#   CF_ACCOUNT_ID  — Your Cloudflare account ID (found in dashboard URL or Overview page)
-#
-# Runtime: ~15-30 minutes depending on Splunk docs server response times
-# Cost: Free tier — uses Workers AI (free 10k neurons/day) + Vectorize (free 30M dimensions)
-
 name: "Layer 2: Setup Vectorize & Ingest Docs"
 
 on:

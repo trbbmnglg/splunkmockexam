@@ -46,8 +46,16 @@ export default function WrongAnswerCard({
     doFetch();
   };
 
-  // Use the URL returned by the explainer (may be RAG-retrieved) or fall back to prop
-  const docsUrl = explanation?.docSource || docSource ||
+  // URL resolution priority:
+  // 1. RAG-retrieved URL from the explainer agent (most accurate)
+  // 2. Question-generation docSource — BUT only if the explainer was NOT RAG-grounded,
+  //    since a RAG-grounded response means the generation-time URL is likely unrelated
+  // 3. Topic-scoped Splunk search fallback
+  const ragUrl = explanation?.docSource;
+  const fallbackDocSource = explanation?.ragGrounded ? '' : (docSource || '');
+  const docsUrl =
+    ragUrl ||
+    fallbackDocSource ||
     `https://docs.splunk.com/Documentation/Splunk/latest/Search?q=${encodeURIComponent(topic)}`;
 
   return (

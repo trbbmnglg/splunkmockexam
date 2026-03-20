@@ -4,18 +4,15 @@
  * FULLY VALIDATED — every URL confirmed HTTP 200 via probe workflows.
  * Last validated: March 2026 against help.splunk.com and docs.splunk.com.
  *
- * For 4 topics where the exact page doesn't exist in help.splunk.com 9.4
- * (add-a-form-input, about-visualization-types, about-installing-splunk-enterprise,
- * configure-scim-user-provisioning), the nearest relevant working page is used.
+ * Changes from previous version:
+ *   - Advanced Power User / Using Forms: updated to verified form-specific page
+ *   - Advanced Power User / Adding Advanced Behaviors and Visualizations: added chart-overview
+ *   - Enterprise Admin / Splunk Admin Basics: updated to installation-instructions page
+ *   - Enterprise Admin / Splunk Authentication Management: updated to about-user-authentication
+ *   - O11y Metrics User: expanded from 3 topics to all 8 blueprint topics.
+ *   - Cybersecurity Defense Engineer: expanded from 3 topics to all 6 blueprint topics.
  *
  * Topic names match EXAM_BLUEPRINTS in constants.js exactly.
- *
- * Changes from previous version:
- *   - O11y Metrics User: expanded from 3 topics to all 8 blueprint topics.
- *     Fixed duplicate URLs between 'Metrics Concepts' and 'Get Metrics In'.
- *     New topics use help.splunk.com/en/splunk-observability-cloud URLs.
- *   - Cybersecurity Defense Engineer: expanded from 3 topics to all 6 blueprint topics.
- *     3 missing topics added using help.splunk.com/en/splunk-enterprise-security-8 URLs.
  */
 
 const S   = 'https://docs.splunk.com/Documentation/Splunk/9.4.2';
@@ -275,11 +272,10 @@ export const SPLUNK_DOC_URLS = [
     ]
   },
   {
-    // Forms: about-form-inputs and add-a-form-input don't exist at page level in 9.4.
-    // Using the simple-xml chapter index and drilldown page as nearest available.
+    // FIXED: updated to verified form-specific page (March 2026)
     certType: 'Advanced Power User', topic: 'Using Forms',
     urls: [
-      `${H}/create-dashboards-and-reports/simple-xml-dashboards/9.4/create-dashboards-with-simple-xml`,
+      `${H}/create-dashboards-and-reports/simple-xml-dashboards/9.4/build-and-edit-dashboards-in-splunk-web/create-and-edit-forms`,
       `${H}/create-dashboards-and-reports/simple-xml-dashboards/9.4/drilldown-and-dashboard-interactivity/use-drilldown-for-dashboard-interactivity`,
     ]
   },
@@ -305,11 +301,11 @@ export const SPLUNK_DOC_URLS = [
     ]
   },
   {
-    // about-visualization-types doesn't exist at page level — using panel reference
+    // FIXED: added chart-overview for visualization types coverage (March 2026)
     certType: 'Advanced Power User', topic: 'Adding Advanced Behaviors and Visualizations',
     urls: [
       `${S}/Viz/PanelreferenceforSimplifiedXML`,
-      `${H}/create-dashboards-and-reports/simple-xml-dashboards/9.4/drilldown-and-dashboard-interactivity/use-drilldown-for-dashboard-interactivity`,
+      `${H}/create-dashboards-and-reports/simple-xml-dashboards/9.4/charts/chart-overview`,
     ]
   },
 
@@ -317,10 +313,10 @@ export const SPLUNK_DOC_URLS = [
   // ENTERPRISE ADMIN — Professional-Level
   // ══════════════════════════════════════════════════════════════════════════
   {
-    // about-installing page not found in 9.4 — using overview page
+    // FIXED: updated to installation-instructions page (March 2026)
     certType: 'Enterprise Admin', topic: 'Splunk Admin Basics',
     urls: [
-      `${H}/get-started/overview/9.4/about-splunk-enterprise/about-splunk-enterprise`,
+      `${H}/get-started/install-and-upgrade/9.4/plan-your-splunk-enterprise-installation/installation-instructions`,
       `${H}/get-started/overview/9.4/about-splunk-enterprise/about-splunk-enterprise-deployments`,
     ]
   },
@@ -355,11 +351,11 @@ export const SPLUNK_DOC_URLS = [
     ]
   },
   {
-    // configure-scim not found in 9.4 — using LDAP auth page (same topic area)
+    // FIXED: updated to about-user-authentication page (March 2026)
     certType: 'Enterprise Admin', topic: 'Splunk Authentication Management',
     urls: [
+      `${H}/administer/manage-users-and-security/9.4/manage-splunk-platform-users-and-roles/about-user-authentication`,
       `${H}/administer/manage-users-and-security/9.4/use-ldap-as-an-authentication-scheme/set-up-user-authentication-with-ldap`,
-      `${HDM}/splunk-enterprise-admin-manual/9.4/manage-users/about-users-and-roles`,
     ]
   },
   {
@@ -606,9 +602,6 @@ export const SPLUNK_DOC_URLS = [
 
   // ══════════════════════════════════════════════════════════════════════════
   // O11y METRICS USER — Foundational-Level
-  // All 8 blueprint topics covered.
-  // Previous version had only 3 entries, 2 of which shared identical URLs.
-  // CERT_FILTER value: "O11y Metrics User"
   // ══════════════════════════════════════════════════════════════════════════
   {
     certType: 'O11y Metrics User', topic: 'Metrics Concepts',
@@ -618,7 +611,6 @@ export const SPLUNK_DOC_URLS = [
     ]
   },
   {
-    // Distinct URLs from Metrics Concepts — OTel ingestion path, not metric types
     certType: 'O11y Metrics User', topic: 'Get Metrics In with OpenTelemetry',
     urls: [
       `${SOC}/manage-data/splunk-distribution-of-the-opentelemetry-collector/get-started-with-the-splunk-distribution-of-the-opentelemetry-collector`,
@@ -671,10 +663,6 @@ export const SPLUNK_DOC_URLS = [
 
   // ══════════════════════════════════════════════════════════════════════════
   // CYBERSECURITY DEFENSE ENGINEER — Intermediate-Level
-  // All 6 blueprint topics covered.
-  // Previous version had only 3 entries (SPL, Investigation, Threat Detection).
-  // 3 new topics added using ES8 docs.
-  // CERT_FILTER value: "Cybersecurity Defense Engineer"
   // ══════════════════════════════════════════════════════════════════════════
   {
     certType: 'Cybersecurity Defense Engineer', topic: 'The Cyber Landscape, Frameworks, and Standards',

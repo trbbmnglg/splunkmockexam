@@ -2,14 +2,13 @@ import { useState, useEffect } from 'react';
 import {
   CheckCircle, XCircle, AlertTriangle, BookOpen, Award, RotateCcw,
   ShieldCheck, ExternalLink, Zap, BarChart2, RefreshCw, BadgeCheck,
-  CalendarCheck, FileText, Shield,
+  CalendarCheck, FileText, Shield, Target, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { TOPIC_LINKS, EXAM_BLUEPRINTS } from '../utils/constants';
 import { DEFAULT_GROQ_KEY } from '../utils/api';
-import { getProfileSummary, clearProfile, getUserId, getWrongAnswerBank } from '../utils/agentAdaptive';
+import { getProfileSummary, clearProfile, getUserId, getWrongAnswerBank, computeExamReadiness } from '../utils/agentAdaptive';
 import WrongAnswerCard from './WrongAnswerCard';
 
-// Simple hash matching worker/routes/wrongAnswers.js so lookups align
 function simpleHash(str) {
   let hash = 0;
   for (let i = 0; i < Math.min(str.length, 200); i++) {
@@ -18,6 +17,112 @@ function simpleHash(str) {
     hash = hash & hash;
   }
   return Math.abs(hash).toString(36);
+}
+
+// ─── Readiness Score Card ─────────────────────────────────────────────────────
+function ReadinessCard({ examType, bp }) {
+  const [open, setOpen] = useState(false);
+  const readiness = computeExamReadiness(examType, bp?.topics);
+
+  if (!readiness || readiness.sessions === 0) return null;
+
+  const unAttempted = readiness.breakdown.filter(t => !t.attempted);
+  const weakInBlueprint = readiness.breakdown
+    .filter(t => t.attempted && t.accuracy < 60)
+    .sort((a, b) => a.accuracy - b.accuracy);
+
+  return (
+    <div className={`bg-white rounded-xl shadow-md border p-6 ${readiness.labelBg}`}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-white/80 flex items-center justify-center shadow-sm">
+            <Target className={`w-5 h-5 ${readiness.labelColor}`} />
+          </div>
+          <div>
+            <h4 className="font-bold text-slate-800 text-sm">Exam Readiness</h4>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Based on {readiness.sessions} session{readiness.sessions !== 1 ? 's' : ''} · {readiness.coveredPct}% of blueprint covered
+            </p>
+          </div>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <div className={`text-3xl font-black ${readiness.labelColor}`}>{readiness.score}%</div>
+          <div className={`text-xs font-bold px-2 py-0.5 rounded-full border mt-1 inline-block ${readiness.labelBg} ${readiness.labelColor}`}>
+            {readiness.label}
+          </div>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="w-full bg-white/60 h-2 rounded-full overflow-hidden mb-3">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${
+            readiness.score >= 80 ? 'bg-emerald-500' :
+            readiness.score >= 65 ? 'bg-blue-500'    :
+            readiness.score >= 45 ? 'bg-amber-500'   :
+                                    'bg-red-500'
+          }`}
+          style={{ width: `${readiness.score}%` }}
+        />
+      </div>
+
+      {/* Nudges */}
+      {unAttempted.length > 0 && (
+        <p className="text-xs text-slate-600 bg-white/60 rounded-lg px-3 py-2 mb-2">
+          <span className="font-semibold">Coverage gap:</span> {unAttempted.length} blueprint topic{unAttempted.length !== 1 ? 's' : ''} never attempted
+          {unAttempted.length <= 3 && (
+            <span className="text-slate-500"> ({unAttempted.map(t => t.name).join(', ')})</span>
+          )}
+        </p>
+      )}
+
+      {/* Drill-down toggle */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between text-xs font-semibold text-slate-600 hover:text-slate-800 mt-1 transition-colors"
+      >
+        <span>Topic breakdown</span>
+        {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-1.5 animate-fade-in max-h-52 overflow-y-auto pr-1">
+          {readiness.breakdown.map((t, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <div className="w-24 flex-shrink-0">
+                <div className="h-1.5 bg-white/60 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${
+                      !t.attempted         ? 'bg-slate-300' :
+                      t.accuracy >= 80     ? 'bg-emerald-400' :
+                      t.accuracy >= 60     ? 'bg-blue-400'    :
+                      t.accuracy >= 40     ? 'bg-amber-400'   :
+                                             'bg-red-400'
+                    }`}
+                    style={{ width: `${t.accuracy}%` }}
+                  />
+                </div>
+              </div>
+              <span className="text-xs text-slate-600 truncate flex-grow">{t.name}</span>
+              <span className={`text-xs font-bold flex-shrink-0 ${
+                !t.attempted     ? 'text-slate-400' :
+                t.accuracy >= 80 ? 'text-emerald-600' :
+                t.accuracy >= 60 ? 'text-blue-600'    :
+                t.accuracy >= 40 ? 'text-amber-600'   :
+                                   'text-red-600'
+              }`}>
+                {t.attempted ? `${t.accuracy}%` : '—'}
+              </span>
+              <span className="text-xs text-slate-400 flex-shrink-0 w-6 text-right">{t.pct}%</span>
+            </div>
+          ))}
+          <p className="text-xs text-slate-400 pt-1 border-t border-white/40">
+            Bar = accuracy · Right column = blueprint weight
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function ResultsScreen({
@@ -38,42 +143,26 @@ export default function ResultsScreen({
   const bp = EXAM_BLUEPRINTS[examType];
   const groqKey = apiKeys['llama'] || DEFAULT_GROQ_KEY;
 
-  // Fix: enrich wrong-answer questions with times_missed from D1
-  // so the explainer agent can correctly escalate depth
   const [enrichedQuestions, setEnrichedQuestions] = useState(questions);
 
   useEffect(() => {
     let cancelled = false;
-
     async function enrichWithTimesMissed() {
       try {
         const { wrongAnswers: bankItems } = await getWrongAnswerBank(examType, false);
         if (!bankItems || bankItems.length === 0 || cancelled) return;
-
-        // Build a lookup: question_hash → times_missed
         const missedMap = {};
         for (const item of bankItems) {
           missedMap[item.question_hash] = item.times_missed;
         }
-
-        // Annotate each question with its times_missed from D1
         const enriched = questions.map(q => {
           const hash = simpleHash(q.question);
           const timesMissed = missedMap[hash];
-          // times_missed from D1 reflects history BEFORE this session;
-          // add 1 if this question was also missed in the current session
-          // (the write to D1 is async so it may not be there yet)
-          return timesMissed !== undefined
-            ? { ...q, times_missed: timesMissed }
-            : q;
+          return timesMissed !== undefined ? { ...q, times_missed: timesMissed } : q;
         });
-
         if (!cancelled) setEnrichedQuestions(enriched);
-      } catch {
-        // Non-fatal — fall back to unannotated questions (times_missed defaults to 1)
-      }
+      } catch { /* non-fatal */ }
     }
-
     enrichWithTimesMissed();
     return () => { cancelled = true; };
   }, [examType, questions]);
@@ -102,7 +191,7 @@ export default function ResultsScreen({
           <p className="text-xl md:text-2xl font-medium opacity-90">{examType} Mock Exam</p>
           <div className="inline-block bg-white/20 px-8 py-4 rounded-xl backdrop-blur-sm mt-6">
             <div className="text-5xl font-black">{score}%</div>
-            <div className="text-sm font-medium uppercase tracking-wider mt-1 opacity-80">Final Score</div>
+            <div className="text-sm font-medium uppercase tracking-wider mt-1 opacity-80">Session Score</div>
           </div>
           <p className="text-lg opacity-90 mt-4">
             You answered {correct} out of {total} questions correctly.
@@ -149,6 +238,9 @@ export default function ResultsScreen({
         {/* ── Right column ── */}
         <div className="flex flex-col gap-6">
 
+          {/* Exam Readiness Score — shown as soon as profile has 1+ session */}
+          <ReadinessCard examType={examType} bp={bp} />
+
           {/* Learning Profile */}
           {profile && profile.sessions >= 1 && (() => {
             const topTopics = profile.topics.slice(0, 5);
@@ -190,8 +282,8 @@ export default function ResultsScreen({
                             </span>
                             <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
                               t.trend === 'improving' ? 'bg-green-100 text-green-700' :
-                              t.trend === 'declining' ? 'bg-red-100 text-red-700' :
-                              t.trend === 'new'       ? 'bg-blue-100 text-blue-700' :
+                              t.trend === 'declining' ? 'bg-red-100 text-red-700'    :
+                              t.trend === 'new'       ? 'bg-blue-100 text-blue-700'  :
                                                         'bg-slate-100 text-slate-500'
                             }`}>{t.trend}</span>
                           </div>

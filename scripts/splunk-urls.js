@@ -7,7 +7,7 @@ const SOC = 'https://help.splunk.com/en/splunk-observability-cloud';
 const ES8 = 'https://help.splunk.com/en/splunk-enterprise-security-8';
 
 // ── URL list ──────────────────────────────────────────────────────────────────
-export const SPLUNK_DOC_URLS = [
+export const splunkDocs = [
 
   // ══════════════════════════════════════════════════════════════════════════
   // SPLUNK CORE CERTIFIED USER
@@ -549,7 +549,7 @@ export const SPLUNK_DOC_URLS = [
 // ── Flatten to a simple array of { url, examType, topic } for the ingestor ───
 export const flattenUrls = () => {
   const result = [];
-  for (const cert of SPLUNK_DOC_URLS) {
+  for (const cert of splunkDocs) {
     for (const topicEntry of cert.topics) {
       for (const url of topicEntry.urls) {
         result.push({

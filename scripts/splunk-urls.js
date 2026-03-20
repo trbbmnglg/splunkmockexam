@@ -14,7 +14,7 @@ export const splunkDocs = [
   // ══════════════════════════════════════════════════════════════════════════
   {
     examType: 'User',
-    cert: 'Splunk Core Certified User',
+    certType: 'Splunk Core Certified User',
     topics: [
       {
         topic: 'Splunk Components',
@@ -109,7 +109,7 @@ export const splunkDocs = [
   // ══════════════════════════════════════════════════════════════════════════
   {
     examType: 'Power User',
-    cert: 'Splunk Core Certified Power User',
+    certType: 'Splunk Core Certified Power User',
     topics: [
       {
         topic: 'Using Fields',
@@ -221,7 +221,7 @@ export const splunkDocs = [
   // ══════════════════════════════════════════════════════════════════════════
   {
     examType: 'Enterprise Admin',
-    cert: 'Splunk Enterprise Certified Admin',
+    certType: 'Splunk Enterprise Certified Admin',
     topics: [
       {
         topic: 'Splunk Licensing',
@@ -306,7 +306,7 @@ export const splunkDocs = [
   // ══════════════════════════════════════════════════════════════════════════
   {
     examType: 'Cloud Admin',
-    cert: 'Splunk Cloud Certified Admin',
+    certType: 'Splunk Cloud Certified Admin',
     topics: [
       {
         topic: 'Splunk Cloud Overview',
@@ -359,7 +359,7 @@ export const splunkDocs = [
   // ══════════════════════════════════════════════════════════════════════════
   {
     examType: 'Enterprise Architect',
-    cert: 'Splunk Enterprise Certified Architect',
+    certType: 'Splunk Enterprise Certified Architect',
     topics: [
       {
         topic: 'Splunk Deployment Planning',
@@ -415,7 +415,7 @@ export const splunkDocs = [
   // ══════════════════════════════════════════════════════════════════════════
   {
     examType: 'O11y Metrics User',
-    cert: 'Splunk O11y Cloud Certified Metrics User',
+    certType: 'Splunk O11y Cloud Certified Metrics User',
     topics: [
       {
         topic: 'Metrics Concepts',
@@ -487,7 +487,7 @@ export const splunkDocs = [
   // ══════════════════════════════════════════════════════════════════════════
   {
     examType: 'Cybersecurity Defense Engineer',
-    cert: 'Splunk Certified Cybersecurity Defense Engineer',
+    certType: 'Splunk Certified Cybersecurity Defense Engineer',
     topics: [
       {
         topic: 'SPL and Efficient Searching',
@@ -556,7 +556,7 @@ export const flattenUrls = () => {
           url,
           examType: cert.examType,
           topic:    topicEntry.topic,
-          cert:     cert.cert,
+          certType:     cert.cert,
         });
       }
     }

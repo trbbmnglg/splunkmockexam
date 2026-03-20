@@ -1,21 +1,3 @@
-/**
- * scripts/splunk-urls.js
- *
- * Source URLs for Splunk documentation ingestion into Vectorize.
- * Used by the setup-vectorize GitHub Actions workflow.
- *
- * Each entry maps to a cert's exam blueprint topics.
- * URLs should point to the most specific page available for that topic.
- *
- * To add coverage: add URLs below, then trigger the workflow with
- * force_reingest=false (only new URLs will be ingested).
- *
- * Last updated: March 2026
- * - O11y Metrics User: expanded from 3 topics to all 8 blueprint topics
- * - Cybersecurity Defense Engineer: expanded from 3 topics to all 6 blueprint topics
- * - Fixed duplicate URLs between 'Metrics Concepts' and 'Get Metrics In with OpenTelemetry'
- */
-
 // ── Base URL constants ────────────────────────────────────────────────────────
 const S   = 'https://docs.splunk.com/Documentation/Splunk/latest';
 const H   = 'https://help.splunk.com/en/search';

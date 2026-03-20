@@ -1,4 +1,4 @@
-import { Settings, X, ChevronRight, ListChecks, Clock, BookOpen, Cpu, Key, Lock, CheckCircle, ShieldCheck, Globe, Zap, RotateCcw, ExternalLink, Target } from 'lucide-react';
+import { Settings, X, ChevronRight, ListChecks, Clock, BookOpen, Cpu, Key, Lock, CheckCircle, ShieldCheck, Globe, Zap, RotateCcw, ExternalLink, Target, GraduationCap } from 'lucide-react';
 import { TOPICS, EXAM_BLUEPRINTS, API_KEY_URLS, CURRENT_YEAR, YEAR_RANGE } from '../utils/constants';
 import { DEFAULT_GROQ_KEY } from '../utils/api';
 import { computeExamReadiness } from '../utils/agentAdaptive';
@@ -29,8 +29,8 @@ export default function ConfigScreen({
   };
 
   // ── Usage indicator ────────────────────────────────────────────────────────
-  const showUsage    = usageInfo !== null && usageInfo !== undefined;
-  const remaining    = usageInfo?.remaining ?? 0;
+  const showUsage     = usageInfo !== null && usageInfo !== undefined;
+  const remaining     = usageInfo?.remaining ?? 0;
   const usageExceeded = usageInfo?.exceeded ?? false;
 
   const usageColor = usageExceeded
@@ -39,11 +39,7 @@ export default function ConfigScreen({
       ? 'bg-amber-50 border-amber-200 text-amber-700'
       : 'bg-green-50 border-green-200 text-green-700';
 
-  const usageDotColor = usageExceeded
-    ? 'bg-red-500'
-    : remaining <= 2
-      ? 'bg-amber-500'
-      : 'bg-green-500';
+  const usageDotColor = usageExceeded ? 'bg-red-500' : remaining <= 2 ? 'bg-amber-500' : 'bg-green-500';
 
   const resetTime = usageInfo?.resetAt
     ? new Date(usageInfo.resetAt).toLocaleTimeString('en-US', {
@@ -52,8 +48,8 @@ export default function ConfigScreen({
     : 'midnight UTC';
 
   // ── Readiness score ────────────────────────────────────────────────────────
-  const bp        = examType ? EXAM_BLUEPRINTS[examType] : null;
-  const readiness = computeExamReadiness(examType, bp?.topics);
+  const bp            = examType ? EXAM_BLUEPRINTS[examType] : null;
+  const readiness     = computeExamReadiness(examType, bp?.topics);
   const showReadiness = readiness && readiness.sessions > 0;
 
   return (
@@ -82,10 +78,7 @@ export default function ConfigScreen({
             }
           </div>
           {(usageExceeded || remaining <= 3) && (
-            <a
-              href="https://console.groq.com/keys"
-              target="_blank"
-              rel="noopener noreferrer"
+            <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-1 text-xs font-semibold underline underline-offset-2 hover:no-underline flex-shrink-0 ml-3"
             >
               Get free API key <ExternalLink className="w-3 h-3" />
@@ -97,18 +90,23 @@ export default function ConfigScreen({
       {/* ── Readiness score indicator ── */}
       {showReadiness && (
         <div className={`flex items-center justify-between p-3 rounded-lg border mb-6 ${readiness.labelBg}`}>
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0">
             <Target className={`w-4 h-4 flex-shrink-0 ${readiness.labelColor}`} />
-            <div>
+            <div className="min-w-0">
               <span className={`text-sm font-bold ${readiness.labelColor}`}>
                 Readiness: {readiness.score}%
               </span>
               <span className="text-xs text-slate-500 ml-2">
-                ({readiness.coveredPct}% of blueprint covered across {readiness.sessions} session{readiness.sessions !== 1 ? 's' : ''})
+                ({readiness.coveredPct}% covered · {readiness.sessions} session{readiness.sessions !== 1 ? 's' : ''})
               </span>
+              {readiness.graduatedCount > 0 && (
+                <span className="text-xs text-emerald-600 font-semibold ml-2">
+                  · {readiness.graduatedCount} mastered 🎓
+                </span>
+              )}
             </div>
           </div>
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${readiness.labelBg} ${readiness.labelColor}`}>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ml-3 ${readiness.labelBg} ${readiness.labelColor}`}>
             {readiness.label}
           </span>
         </div>
@@ -144,12 +142,8 @@ export default function ConfigScreen({
           </h3>
           <label className="flex items-center cursor-pointer p-4 border-2 border-slate-100 hover:border-slate-300 transition-colors bg-white rounded-lg">
             <div className="relative">
-              <input
-                type="checkbox"
-                className="sr-only"
-                checked={examConfig.useTimer}
-                onChange={(e) => setExamConfig(prev => ({ ...prev, useTimer: e.target.checked }))}
-              />
+              <input type="checkbox" className="sr-only" checked={examConfig.useTimer}
+                onChange={(e) => setExamConfig(prev => ({ ...prev, useTimer: e.target.checked }))} />
               <div className={`block w-14 h-8 transition-colors rounded-full ${examConfig.useTimer ? 'bg-slate-800' : 'bg-slate-300'}`} />
               <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${examConfig.useTimer ? 'transform translate-x-6' : ''}`} />
             </div>
@@ -175,25 +169,51 @@ export default function ConfigScreen({
           <p className="text-sm text-slate-500 mb-4">If no topics are selected, the exam will cover all topics randomly.</p>
           <div className="grid sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto p-1 pr-2">
             {TOPICS[examType].map((topic, idx) => {
-              const isSelected = examConfig.selectedTopics.includes(topic);
-
-              // Show per-topic readiness hint if we have profile data
-              const topicReadiness = readiness?.breakdown?.find(t => t.name === topic);
-              const hasData  = topicReadiness?.attempted;
-              const accuracy = topicReadiness?.accuracy;
+              const isSelected      = examConfig.selectedTopics.includes(topic);
+              const topicReadiness  = readiness?.breakdown?.find(t => t.name === topic);
+              const hasData         = topicReadiness?.attempted;
+              const accuracy        = topicReadiness?.accuracy;
+              const isGraduated     = !!(topicReadiness?.graduated);
 
               return (
                 <div
                   key={idx}
                   onClick={() => toggleTopic(topic)}
-                  className={`p-3 border rounded cursor-pointer transition-all flex items-start space-x-3 ${isSelected ? 'bg-pink-50 border-pink-400' : 'bg-white border-slate-200 hover:border-pink-300'}`}
+                  className={`p-3 border rounded cursor-pointer transition-all flex items-start space-x-3 ${
+                    isGraduated
+                      ? isSelected
+                        ? 'bg-emerald-50 border-emerald-400'
+                        : 'bg-emerald-50/50 border-emerald-200 hover:border-emerald-400'
+                      : isSelected
+                        ? 'bg-pink-50 border-pink-400'
+                        : 'bg-white border-slate-200 hover:border-pink-300'
+                  }`}
                 >
-                  <div className={`mt-0.5 flex-shrink-0 w-5 h-5 border rounded flex items-center justify-center transition-colors ${isSelected ? 'bg-pink-500 border-pink-500' : 'border-slate-300'}`}>
-                    {isSelected && <CheckCircle className="w-3.5 h-3.5 text-white" />}
+                  <div className={`mt-0.5 flex-shrink-0 w-5 h-5 border rounded flex items-center justify-center transition-colors ${
+                    isGraduated && isSelected ? 'bg-emerald-500 border-emerald-500' :
+                    isSelected                ? 'bg-pink-500 border-pink-500'       :
+                                                'border-slate-300'
+                  }`}>
+                    {isSelected && (isGraduated
+                      ? <GraduationCap className="w-3 h-3 text-white" />
+                      : <CheckCircle className="w-3.5 h-3.5 text-white" />
+                    )}
                   </div>
                   <div className="flex-grow min-w-0">
-                    <span className={`text-sm font-medium ${isSelected ? 'text-pink-900' : 'text-slate-700'}`}>{topic}</span>
-                    {hasData && (
+                    <div className="flex items-center gap-1.5">
+                      {isGraduated && <GraduationCap className="w-3 h-3 text-emerald-500 flex-shrink-0" />}
+                      <span className={`text-sm font-medium ${
+                        isGraduated ? 'text-emerald-800' :
+                        isSelected  ? 'text-pink-900'    :
+                                      'text-slate-700'
+                      }`}>{topic}</span>
+                    </div>
+
+                    {isGraduated ? (
+                      <span className="text-xs text-emerald-600 font-semibold mt-0.5 block">
+                        Mastered 🎓 — 1 question (maintenance)
+                      </span>
+                    ) : hasData ? (
                       <div className="flex items-center gap-1.5 mt-1">
                         <div className="flex-grow h-1 bg-slate-100 rounded-full overflow-hidden">
                           <div
@@ -213,10 +233,9 @@ export default function ConfigScreen({
                                           'text-red-600'
                         }`}>{accuracy}%</span>
                       </div>
-                    )}
-                    {!hasData && showReadiness && (
+                    ) : showReadiness ? (
                       <span className="text-xs text-slate-400 mt-0.5 block">not yet attempted</span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               );
@@ -266,7 +285,8 @@ export default function ConfigScreen({
                     <label className="block text-sm font-semibold text-slate-700 flex items-center">
                       <Key className="w-4 h-4 mr-1.5" /> {examConfig.aiProvider.toUpperCase()} API Key
                     </label>
-                    <a href={API_KEY_URLS[examConfig.aiProvider]} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center">
+                    <a href={API_KEY_URLS[examConfig.aiProvider]} target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center">
                       Get API Key <ExternalLink className="w-3 h-3 ml-1" />
                     </a>
                   </div>

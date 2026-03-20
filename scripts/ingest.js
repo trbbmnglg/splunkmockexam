@@ -14,10 +14,9 @@ const MODEL_NAME = '@cf/baai/bge-small-en-v1.5';
 
 const BATCH_SIZE = 100;
 const RETRY_LIMIT = 3;
-const DELAY_BETWEEN_REQUESTS_MS = 1500; // Increased to avoid rate limiting
-const FORCE_REINGEST = process.env.FORCE_REINGEST === 'true'; // set to re-process everything
+const DELAY_BETWEEN_REQUESTS_MS = 1500;
+const FORCE_REINGEST = process.env.FORCE_REINGEST === 'true';
 
-// Rotate User-Agent strings to avoid WAF blocking
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
@@ -55,7 +54,6 @@ async function fetchWithRetry(url, retries = RETRY_LIMIT) {
     try {
       const response = await fetch(url, { headers: getFetchHeaders() });
       if (response.status === 429 || response.status === 503) {
-        // Rate limited — wait longer before retry
         const wait = 5000 * (i + 1);
         console.log(`  Rate limited (${response.status}), waiting ${wait/1000}s...`);
         await sleep(wait);
@@ -74,27 +72,71 @@ async function fetchWithRetry(url, retries = RETRY_LIMIT) {
   }
 }
 
+// ── extractContent ────────────────────────────────────────────────────────────
+// Updated to use Heretto DITA selectors for help.splunk.com (Heretto CMS)
+// with legacy fallbacks for docs.splunk.com
 function extractContent(html) {
   const $ = load(html);
-  
-  // Remove nav, headers, footers, scripts, styles
-  $('nav, header, footer, script, style, .toc, .breadcrumb, #comments').remove();
-  
-  // Splunk docs specific main content area
-  let content = $('.main-content').text() || $('article').text() || $('main').text() || $('body').text();
-  
-  // Clean up whitespace
-  return content.replace(/\s+/g, ' ').trim();
+
+  // Aggressively remove navigation chrome — Heretto/Splunk specific + generic
+  $(
+    'nav, header, footer, script, style, aside, iframe, noscript, ' +
+    '.toc, .breadcrumb, #comments, ' +
+    '[role="navigation"], [role="banner"], [role="contentinfo"], ' +
+    '.sidebar, .left-nav, .right-nav, .navigation, .menu, ' +
+    '.spl-sidebar, .spl-nav, .spl-header, .spl-footer'
+  ).remove();
+
+  // Heretto DITA selectors (help.splunk.com) in order of precision,
+  // then legacy fallbacks for docs.splunk.com
+  const selectors = [
+    'article.topic',       // Primary: Heretto DITA article wrapper
+    '.topic.concept',      // Primary: Heretto concept topic
+    '.topic.reference',    // Primary: Heretto reference topic
+    '.topic.task',         // Primary: Heretto task topic
+    '[role="main"]',       // Secondary: ARIA main content
+    'main',                // Fallback: HTML5 main
+    '#main-content',       // Fallback: common ID
+    '.main-area',          // Fallback: legacy Splunk docs wrapper
+    'article',             // Generic HTML5 article
+  ];
+
+  let content = '';
+  for (const selector of selectors) {
+    const el = $(selector);
+    if (el.length > 0) {
+      content = el.text();
+      break;
+    }
+  }
+
+  // Final fallback to cleaned body
+  if (!content) content = $('body').text();
+
+  const cleaned = content.replace(/\s+/g, ' ').trim();
+
+  // Hard guard — reject boilerplate and empty content
+  // so the ingest loop skips this URL rather than indexing garbage
+  if (
+    cleaned.length < 200 ||
+    cleaned.includes('googletagmanager') ||
+    cleaned.includes('display:none') ||
+    cleaned.includes('visibility:hidden')
+  ) {
+    return '';
+  }
+
+  return cleaned;
 }
 
 function chunkText(text, maxWords = 200, overlapWords = 50) {
   const words = text.split(' ');
   const chunks = [];
   let i = 0;
-  
+
   while (i < words.length) {
     const chunk = words.slice(i, i + maxWords).join(' ');
-    if (chunk.trim().length > 50) { // skip tiny chunks
+    if (chunk.trim().length > 50) {
       chunks.push(chunk);
     }
     i += (maxWords - overlapWords);
@@ -124,27 +166,24 @@ async function getEmbeddings(texts) {
   if (!result.success) {
     throw new Error(`Workers AI API Error: ${JSON.stringify(result.errors)}`);
   }
-  
-  return result.result.data; // Array of arrays (embeddings)
+
+  return result.result.data;
 }
 
-// ── Deterministic vector ID based on URL + chunk index ───────────────────────
-// Vectorize hard limit: 64 bytes per ID. We cap the slug at 55 chars to leave
-// room for the "-NNN" suffix (1 dash + up to 3 digits = 4 bytes max → 59 total).
+// ── Deterministic vector ID ───────────────────────────────────────────────────
 function urlToSlug(url) {
   return url
     .replace(/^https?:\/\/[^/]+\/Documentation\//, '')
     .replace(/^https?:\/\/help\.splunk\.com\/en\//, '')
     .replace(/[^a-zA-Z0-9]/g, '-')
     .toLowerCase()
-    .slice(0, 55); // strict cap: 55 + "-" + up to 3 digits = 59 ≤ 64
+    .slice(0, 55);
 }
 
 function chunkId(url, chunkIndex) {
   return `${urlToSlug(url)}-${chunkIndex}`;
 }
 
-// Check Vectorize for chunk-0 of this URL — if it exists the URL was ingested
 async function isUrlIngested(url) {
   if (FORCE_REINGEST) return false;
   const id = chunkId(url, 0);
@@ -164,14 +203,13 @@ async function isUrlIngested(url) {
     const result = await response.json();
     return result.success && result.result?.length > 0;
   } catch {
-    return false; // on any error, assume not ingested and proceed
+    return false;
   }
 }
 
 async function uploadToVectorize(vectors) {
-  // Cloudflare Vectorize expects NDJSON format for bulk inserts
   const ndjson = vectors.map(v => JSON.stringify(v)).join('\n');
-  
+
   const response = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/vectorize/v2/indexes/${INDEX_NAME}/insert`,
     {
@@ -199,10 +237,9 @@ async function uploadToVectorize(vectors) {
 async function main() {
   console.log('=== Splunk MockTest — Layer 2 Ingestion ===');
   console.log(`Index: ${INDEX_NAME}`);
-  
+
   let docsToProcess = splunkDocs;
 
-  // FIX: splunk-urls.js uses `certType` not `cert` — filter on the correct field
   if (CERT_FILTER) {
     docsToProcess = splunkDocs.filter(doc => doc.certType === CERT_FILTER);
     console.log(`Filtered to certType="${CERT_FILTER}": ${docsToProcess.length} entries`);
@@ -215,16 +252,15 @@ async function main() {
   let allVectors = [];
   let processedCount = 0;
   let skippedCount = 0;
+  let boilerplateCount = 0;
 
   for (const doc of docsToProcess) {
-    // FIX: use doc.certType and doc.topic (correct field names from splunk-urls.js)
     const certType = doc.certType;
     const topic    = doc.topic;
 
     console.log(`\n[${certType}] ${topic}`);
-    
+
     for (const url of doc.urls) {
-      // ── Resume logic: skip URLs already in Vectorize ──────────────────────
       const alreadyDone = await isUrlIngested(url);
       if (alreadyDone) {
         console.log(`  SKIP (already ingested): ${url}`);
@@ -236,13 +272,21 @@ async function main() {
       try {
         const html = await fetchWithRetry(url);
         const text = extractContent(html);
+
+        // Skip if extractContent returned empty (boilerplate detected)
+        if (!text) {
+          console.log(`  SKIP — boilerplate or no extractable content: ${url}`);
+          boilerplateCount++;
+          skippedCount++;
+          await sleep(DELAY_BETWEEN_REQUESTS_MS);
+          continue;
+        }
+
         const chunks = chunkText(text);
-        
         console.log(`  -> Extracted ${chunks.length} chunks`);
 
         for (let i = 0; i < chunks.length; i++) {
           allVectors.push({
-            // Deterministic ID — stable across re-runs for the same URL+chunk
             id: chunkId(url, i),
             text: chunks[i],
             metadata: {
@@ -261,7 +305,9 @@ async function main() {
     }
   }
 
-  console.log(`\nURLs processed: ${processedCount}, skipped: ${skippedCount}`);
+  console.log(`\nURLs processed: ${processedCount}`);
+  console.log(`URLs skipped (fetch errors): ${skippedCount - boilerplateCount}`);
+  console.log(`URLs skipped (boilerplate): ${boilerplateCount}`);
 
   if (allVectors.length === 0) {
     console.log('No chunks extracted. Exiting.');
@@ -277,7 +323,6 @@ async function main() {
     return;
   }
 
-  // Process in batches
   console.log('\nStarting Embedding and Upload...');
   let totalUploaded = 0;
   const totalBatches = Math.ceil(allVectors.length / BATCH_SIZE);
@@ -286,13 +331,11 @@ async function main() {
     const batch = allVectors.slice(i, i + BATCH_SIZE);
     const batchNum = Math.floor(i / BATCH_SIZE) + 1;
     console.log(`Processing batch ${batchNum}/${totalBatches} (${batch.length} items)...`);
-    
+
     try {
-      // 1. Get embeddings
       const texts = batch.map(b => b.text);
       const embeddings = await getEmbeddings(texts);
-      
-      // 2. Format for Vectorize — id already set deterministically
+
       const vectorizePayload = batch.map((item, idx) => ({
         id: item.id,
         values: embeddings[idx],
@@ -305,14 +348,12 @@ async function main() {
         }
       }));
 
-      // 3. Upload
       await uploadToVectorize(vectorizePayload);
       totalUploaded += batch.length;
       console.log(`  ✓ Uploaded ${batch.length} vectors. Total so far: ${totalUploaded}`);
-      
-      // Brief pause between batches to avoid hammering the API
+
       await sleep(500);
-      
+
     } catch (e) {
       console.error(`  Batch ${batchNum} failed: ${e.message}`);
     }
@@ -320,7 +361,8 @@ async function main() {
 
   console.log(`\n=== Ingestion Complete ===`);
   console.log(`Successfully embedded and uploaded ${totalUploaded}/${allVectors.length} chunks.`);
-  console.log(`URLs skipped due to fetch errors: ${skippedCount}`);
+  console.log(`URLs skipped due to fetch errors: ${skippedCount - boilerplateCount}`);
+  console.log(`URLs skipped due to boilerplate: ${boilerplateCount}`);
   console.log(`Re-run anytime — already-ingested URLs will be auto-skipped.`);
   console.log(`To force full re-ingest: set FORCE_REINGEST=true in the workflow inputs.`);
 }

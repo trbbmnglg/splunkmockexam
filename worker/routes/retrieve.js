@@ -124,10 +124,11 @@ export async function handleRetrieve(request, env, ok, err) {
             'Authorization': `Bearer ${env.JINA_API_KEY}`,
           },
           body: JSON.stringify({
-            model:     'jina-reranker-v2-base-multilingual',
+            model:     'jina-reranker-v3',
             query,
             documents: poolPassages.map(p => p.text),
             top_n:     TOP_K_RERANKED,
+            return_documents: false,
           }),
           // 5s timeout — reranker must not block exam generation
           signal: AbortSignal.timeout(5000),

@@ -7,7 +7,11 @@ import {
 import { YEAR_RANGE, TOPICS, CERT_CARDS, API_KEY_URLS, PRODUCT_CONTEXT_MAP, EXAM_BLUEPRINTS } from './utils/constants';
 import { DEFAULT_GROQ_KEY, generateDynamicQuestions } from './utils/api';
 import { runValidationPipeline } from './utils/agentValidator';
-import { updateProfile, buildAdaptiveContext, loadProfile, getCommunityStats, getWrongAnswerBank, clearReviewedAnswers } from './utils/agentAdaptive';
+import {
+  updateProfile, buildAdaptiveContext, loadProfile,
+  getCommunityStats, getWrongAnswerBank, clearReviewedAnswers,
+  saveSeenConcepts, getRecentSeenConcepts,
+} from './utils/agentAdaptive';
 
 import ConsentModal   from './components/ConsentModal';
 import FeedbackModal  from './components/FeedbackModal';
@@ -143,7 +147,8 @@ export default function App() {
   };
 
   // ── buildAgenticPrompt ─────────────────────────────────────────────────────
-  const buildAgenticPrompt = useCallback((type, num, topics, provider, passages = []) => {
+  // seenConcepts: [{ hash, hint, topic }] from getRecentSeenConcepts()
+  const buildAgenticPrompt = useCallback((type, num, topics, provider, passages = [], seenConcepts = []) => {
     if (!type) return '';
     const bp = EXAM_BLUEPRINTS[type];
     const productContext = PRODUCT_CONTEXT_MAP[type] || 'Splunk Enterprise and Splunk Cloud Platform';
@@ -183,6 +188,32 @@ export default function App() {
 
     const { adaptivePromptSection } = buildAdaptiveContext(type, num, bp?.topics || []);
 
+    // ── Cross-session duplicate prevention ────────────────────────────────
+    let seenConceptsSection = '';
+    if (seenConcepts && seenConcepts.length > 0) {
+      const byTopic = {};
+      for (const c of seenConcepts) {
+        const t = c.topic || 'General';
+        if (!byTopic[t]) byTopic[t] = [];
+        byTopic[t].push(c.hint);
+      }
+      const lines = Object.entries(byTopic)
+        .map(([topic, hints]) => `  [${topic}]\n${hints.map(h => `    - "${h}"`).join('\n')}`)
+        .join('\n');
+
+      seenConceptsSection = `
+CROSS-SESSION DUPLICATE PREVENTION — MANDATORY:
+The candidate has already seen questions on these exact concepts in previous sessions.
+You MUST NOT generate questions that test the same specific scenario, command syntax,
+or concept as any item listed below. Approach each topic from a completely different angle.
+
+${lines}
+
+This list contains ${seenConcepts.length} previously seen concept${seenConcepts.length !== 1 ? 's' : ''}.
+Treat each item as a hard exclusion — if your question would have the same correct answer
+or test the same sub-concept as a listed item, discard it and generate a different question.`;
+    }
+
     return `You are a Splunk certification exam author creating a mock exam for the "${type}" certification (${bp ? bp.level : 'intermediate'}).
 
 EXAM CONTEXT:
@@ -198,7 +229,9 @@ ${difficulty}
 TOPIC DISTRIBUTION — follow these counts exactly:
 ${topicDistribution}
 ${adaptivePromptSection}
-${passages.length > 0 ? `\nREFERENCE DOCUMENTATION — Base your questions on these official Splunk documentation passages.\nEvery question MUST be grounded in the content below. For each question, include a "docSource" field\nwith the URL of the passage that most directly supports that question.\n\n${passages.slice(0, 12).map((p, i) => `[DOC ${i+1}] Topic: ${p.topic}\nSource: ${p.url}\n---\n${p.text.slice(0, 600)}\n---`).join('\n\n')}\n\n` : ''}STRICT TOPIC BOUNDARY — this is the most important rule:
+${passages.length > 0 ? `\nREFERENCE DOCUMENTATION — Base your questions on these official Splunk documentation passages.\nEvery question MUST be grounded in the content below. For each question, include a "docSource" field\nwith the URL of the passage that most directly supports that question.\n\n${passages.slice(0, 12).map((p, i) => `[DOC ${i+1}] Topic: ${p.topic}\nSource: ${p.url}\n---\n${p.text.slice(0, 600)}\n---`).join('\n\n')}\n\n` : ''}${seenConceptsSection}
+
+STRICT TOPIC BOUNDARY — this is the most important rule:
 You MUST generate questions ONLY within the topics listed in the TOPIC DISTRIBUTION section above.
 Do NOT introduce any topic, concept, or Splunk feature that belongs to a different certification exam.
 Examples of what is FORBIDDEN for this exam ("${type}"):
@@ -238,6 +271,8 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
             const { examType: et, questions: qs, userAnswers: ua } = examStateRef.current;
             if (et && qs.length > 0) {
               updateProfile(et, qs, ua, []).catch(err => console.warn('[App] Profile update on timeout failed:', err.message));
+              // Save seen concepts on timer expiry too
+              saveSeenConcepts(et, qs);
             }
             setIsReviewMode(false);
             setReviewQuestionHashes([]);
@@ -306,7 +341,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
         });
         if (res.ok) setUsageInfo(await res.json());
       } catch {
-        // Non-fatal — indicator just won't show
+        // Non-fatal
       }
     } else {
       setUsageInfo(null);
@@ -339,12 +374,28 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     setGameState('loading');
     setLoadingText('Retrieving relevant Splunk documentation...');
 
-    // Layer 2: RAG
-    const passages = await fetchDocPassages(examType, examConfig.selectedTopics);
-    setDocPassages(passages);
-    if (passages.length > 0) console.log(`[Layer2] Retrieved ${passages.length} doc passages for grounding`);
+    // RAG + seen concepts in parallel — neither blocks the other
+    const [passages, seenConcepts] = await Promise.all([
+      fetchDocPassages(examType, examConfig.selectedTopics),
+      getRecentSeenConcepts(examType),
+    ]);
 
-    const promptWithDocs = buildAgenticPrompt(examType, examConfig.numQuestions, examConfig.selectedTopics, examConfig.aiProvider, passages);
+    setDocPassages(passages);
+    if (passages.length > 0) {
+      console.log(`[Layer2] Retrieved ${passages.length} doc passages for grounding`);
+    }
+    if (seenConcepts.length > 0) {
+      console.log(`[Dedup] Loaded ${seenConcepts.length} previously seen concepts for exclusion`);
+    }
+
+    const promptWithDocs = buildAgenticPrompt(
+      examType,
+      examConfig.numQuestions,
+      examConfig.selectedTopics,
+      examConfig.aiProvider,
+      passages,
+      seenConcepts,
+    );
     const enrichedConfig = { ...examConfig, customPrompt: promptWithDocs, passages };
 
     setLoadingText(`Generating ${examConfig.numQuestions} dynamic questions using ${examConfig.aiProvider.toUpperCase()}...`);
@@ -429,11 +480,14 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     setUserAnswers(prev => ({ ...prev, [currentQuestionIndex]: optionIndex }));
   }, [currentQuestionIndex]);
 
-  // Layer 3: finish exam
+  // ── finishExam ─────────────────────────────────────────────────────────────
   const finishExam = useCallback(() => {
     clearInterval(timerRef.current);
     if (examType && questions.length > 0) {
-      updateProfile(examType, questions, userAnswers, lastValidationLog).catch(err => console.warn('[App] Profile update failed:', err.message));
+      updateProfile(examType, questions, userAnswers, lastValidationLog)
+        .catch(err => console.warn('[App] Profile update failed:', err.message));
+      // Fire-and-forget — persist all question stems as seen concepts
+      saveSeenConcepts(examType, questions);
     }
     if (isReviewMode && reviewQuestionHashes.length > 0) {
       clearReviewedAnswers(examType, reviewQuestionHashes);
@@ -478,7 +532,13 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
 
     if (weakTopics.length > 0 && aiCount > 0) {
       setLoadingText(`Generating ${aiCount} fresh questions on your weak topics...`);
-      const reviewConfig = { ...examConfig, numQuestions: aiCount, selectedTopics: weakTopics, customPrompt: buildAgenticPrompt(examType, aiCount, weakTopics, examConfig.aiProvider), passages: [] };
+      const reviewConfig = {
+        ...examConfig,
+        numQuestions:   aiCount,
+        selectedTopics: weakTopics,
+        customPrompt:   buildAgenticPrompt(examType, aiCount, weakTopics, examConfig.aiProvider),
+        passages:       [],
+      };
       const groqKey        = apiKeys['llama'] || DEFAULT_GROQ_KEY;
       const usingSharedKey = !apiKeys['llama'] || apiKeys['llama'].trim() === '' || apiKeys['llama'] === DEFAULT_GROQ_KEY;
 

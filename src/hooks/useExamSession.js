@@ -1,413 +1,486 @@
 /**
- * src/components/PrivacySettingsModal.jsx
+ * hooks/useExamSession.js
  *
- * Full data rights UI — accessible from the nav bar at all times.
- *
- * Features:
- *   - Tracking toggle (on/off) with choice to keep or delete existing data
- *   - Download my data (JSON export of all D1 data)
- *   - Delete all data (full D1 wipe + localStorage clear)
- *   - Anonymous ID display
- *   - Clear explanation of what is stored and why
- *
- * Security:
- *   - All sensitive operations require a signed payload (userId + token + timestamp)
- *   - Token is registered with the Worker on first use (hash stored in D1, raw in localStorage)
- *   - Requests older than 5 minutes are rejected server-side (replay prevention)
- *   - Rate limited to 3 sensitive ops per userId per day
+ * Changes in this version:
+ *   - handleStartReview: added isTrackingEnabled() guard at the top.
+ *     If tracking is off, shows a clear actionable error instead of
+ *     hitting D1 and getting the confusing "no wrong answers" message.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { EXAM_BLUEPRINTS }          from '../utils/constants';
+import { DEFAULT_GROQ_KEY, generateDynamicQuestions } from '../utils/api';
+import { runValidationPipeline }    from '../utils/agentValidator';
 import {
-  X, Shield, Download, Trash2, ToggleLeft, ToggleRight,
-  AlertTriangle, CheckCircle, ChevronDown, ChevronUp, Info,
-} from 'lucide-react';
-import {
-  isTrackingEnabled, setTrackingEnabled,
-  getOrCreateToken, hashToken, buildSignedPayload, clearAllLocalData,
-} from '../utils/privacyToken';
-import { getUserId, clearProfile } from '../utils/agentAdaptive';
+  updateProfile,
+  getWrongAnswerBank,
+  clearReviewedAnswers,
+  saveSeenConcepts,
+  getRecentSeenConcepts,
+  getUserId,
+} from '../utils/agentAdaptive';
+import { isTrackingEnabled } from '../utils/privacyToken';
 
 const BASE_URL = import.meta.env.MODE === 'development'
   ? '/api'
   : 'https://splunkmockexam.gtaad-innovations.com/api';
 
-// ── Register token with Worker on first use ───────────────────────────────────
-async function ensureTokenRegistered(userId, token) {
+// ─── Helpers (module-level, no state dependency) ──────────────────────────────
+
+function shuffleWithCorrect(correctAnswer) {
+  const distractors = [
+    'This is configured automatically by Splunk at startup',
+    'This setting is managed exclusively through the Splunk Web UI',
+    'This requires a restart of the Splunk service to take effect',
+    'This is handled by the deployment server and cannot be manually set',
+    'This option is only available in Splunk Cloud, not Splunk Enterprise',
+    'This is defined in the outputs.conf file, not the inputs.conf file',
+  ];
+  const picked = distractors
+    .filter(d => d.toLowerCase() !== correctAnswer.toLowerCase())
+    .sort(() => Math.random() - 0.5)
+    .slice(0, 3);
+  return [correctAnswer, ...picked];
+}
+
+async function fetchDocPassages(baseUrl, type, topics) {
   try {
-    const tokenHash = await hashToken(token);
-    await fetch(`${BASE_URL}/privacy/register-token`, {
+    const topicParams = topics.length > 0
+      ? topics.map(t => `topics[]=${encodeURIComponent(t)}`).join('&')
+      : '';
+    const url = `${baseUrl}/retrieve?examType=${encodeURIComponent(type)}${topicParams ? '&' + topicParams : ''}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (res.ok) return (await res.json()).passages || [];
+  } catch (err) {
+    console.warn('[Layer2] Doc retrieval failed, continuing without RAG:', err.message);
+  }
+  return [];
+}
+
+async function checkAndIncrementUsage(baseUrl) {
+  try {
+    const userId = getUserId();
+    const res = await fetch(`${baseUrl}/usage`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ userId, tokenHash }),
+      body:    JSON.stringify({ userId }),
       signal:  AbortSignal.timeout(8000),
     });
-  } catch (e) {
-    console.warn('[Privacy] Token registration failed:', e.message);
+    if (res.status === 429) {
+      const data = await res.json();
+      let parsed = {};
+      try { parsed = JSON.parse(data.error); } catch { parsed = data; }
+      const resetTime = parsed.resetAt
+        ? new Date(parsed.resetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })
+        : 'midnight UTC';
+      return {
+        allowed: false,
+        message: `You've reached the daily limit of 10 free exams (resets at ${resetTime}).\n\nTo keep practising, add your own free Groq API key in Advanced Settings — it takes 30 seconds to get one at console.groq.com/keys`,
+      };
+    }
+    if (res.ok) {
+      const data = await res.json();
+      return { allowed: true, remaining: data.remaining };
+    }
+    return { allowed: true, remaining: null };
+  } catch {
+    return { allowed: true, remaining: null };
   }
 }
 
-// ── Trigger JSON file download ────────────────────────────────────────────────
-function downloadJson(data, filename) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+function randomizeQuestion(q) {
+  const safeQuestion = typeof q.question === 'string' ? q.question : JSON.stringify(q?.question || 'Missing question text');
+  const safeAnswer   = typeof q.answer   === 'string' ? q.answer   : JSON.stringify(q?.answer   || 'Missing answer text');
+
+  let safeOptions = q.options;
+  if (!Array.isArray(safeOptions)) {
+    safeOptions = (typeof safeOptions === 'object' && safeOptions !== null)
+      ? Object.values(safeOptions)
+      : [String(safeOptions || 'Option A'), 'Option B', 'Option C', 'Option D'];
+  }
+  safeOptions = safeOptions.map(opt => typeof opt === 'string' ? opt : JSON.stringify(opt || ''));
+  while (safeOptions.length < 4) safeOptions.push(`Dummy Option ${safeOptions.length + 1}`);
+
+  const shuffledOptions = [...safeOptions].sort(() => Math.random() - 0.5);
+  const norm = s => s.trim().replace(/\s+/g, ' ').toLowerCase();
+
+  // 1st pass: exact normalize match
+  let correctIndex = shuffledOptions.findIndex(opt => norm(opt) === norm(safeAnswer));
+
+  // 2nd pass: fuzzy — find option with most shared words (handles model rewording)
+  if (correctIndex === -1) {
+    const answerWords = new Set(norm(safeAnswer).split(/\s+/));
+    const scores = shuffledOptions.map(opt => {
+      const optWords = norm(opt).split(/\s+/);
+      const shared = optWords.filter(w => answerWords.has(w)).length;
+      return shared / Math.max(answerWords.size, optWords.length);
+    });
+    const best = scores.indexOf(Math.max(...scores));
+    if (scores[best] >= 0.6) {
+      console.info('[Question] Fuzzy matched answer:', safeAnswer, '→', shuffledOptions[best], `(${Math.round(scores[best]*100)}%)`);
+      correctIndex = best;
+    } else {
+      console.warn('[Question] Answer-option mismatch (fuzzy also failed):', safeAnswer, '| options:', shuffledOptions, '| scores:', scores);
+    }
+  }
+
+  return {
+    ...q,
+    question:     safeQuestion,
+    options:      shuffledOptions,
+    correctIndex: correctIndex !== -1 ? correctIndex : 0,
+    answer:       shuffledOptions[correctIndex !== -1 ? correctIndex : 0], // snap answer to matched option text
+
+    topic:        typeof q.topic     === 'string' ? q.topic     : JSON.stringify(q?.topic     || 'General'),
+    docSource:    typeof q.docSource === 'string' ? q.docSource : '',
+  };
 }
 
-export default function PrivacySettingsModal({ onClose }) {
-  const [trackingOn,    setTrackingOn]    = useState(isTrackingEnabled());
-  const [dataInfoOpen,  setDataInfoOpen]  = useState(false);
-  const [loading,       setLoading]       = useState(null); // 'download' | 'delete' | 'toggle'
-  const [status,        setStatus]        = useState(null); // { type: 'success'|'error', msg }
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [showKeepOrDelete, setShowKeepOrDelete] = useState(false); // shown when toggling off
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 
-  const userId = getUserId();
+export function useExamSession({ examType, examConfig, apiKeys, buildAgenticPrompt }) {
+  // ── Session state ──────────────────────────────────────────────────────────
+  const [gameState,            setGameState]            = useState('menu');
+  const [questions,            setQuestions]            = useState([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [userAnswers,          setUserAnswers]          = useState({});
+  const [flaggedQuestions,     setFlaggedQuestions]     = useState({});
+  const [timeRemaining,        setTimeRemaining]        = useState(0);
+  const [loadingText,          setLoadingText]          = useState('');
+  const [apiError,             setApiError]             = useState(null);
+  const [docPassages,          setDocPassages]          = useState([]);
+  const [lastValidationLog,    setLastValidationLog]    = useState([]);
+  const [isReviewMode,         setIsReviewMode]         = useState(false);
+  const [reviewQuestionHashes, setReviewQuestionHashes] = useState([]);
 
-  // Register token on modal open
+  // ── UI state ───────────────────────────────────────────────────────────────
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showGrid,        setShowGrid]        = useState(false);
+
+  // ── Refs ───────────────────────────────────────────────────────────────────
+  const timerRef     = useRef(null);
+  const examStateRef = useRef({ examType, questions, userAnswers });
+
   useEffect(() => {
-    const token = getOrCreateToken();
-    if (token) ensureTokenRegistered(userId, token);
-  }, [userId]);
+    examStateRef.current = { examType, questions, userAnswers };
+  }, [examType, questions, userAnswers]);
 
-  const showStatus = (type, msg, durationMs = 4000) => {
-    setStatus({ type, msg });
-    setTimeout(() => setStatus(null), durationMs);
-  };
-
-  // ── Build a fresh signed payload ────────────────────────────────────────────
-  const getSignedPayload = (extra = {}) => {
-    const token = getOrCreateToken();
-    if (!token) throw new Error('No privacy token available');
-    return buildSignedPayload(userId, token, extra);
-  };
-
-  // ── Download ────────────────────────────────────────────────────────────────
-  const handleDownload = async () => {
-    setLoading('download');
-    setStatus(null);
-    try {
-      const payload  = getSignedPayload();
-      const res      = await fetch(`${BASE_URL}/privacy/download`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(payload),
-        signal:  AbortSignal.timeout(15000),
-      });
-      if (res.status === 401) throw new Error('Authentication failed — please try again.');
-      if (res.status === 429) throw new Error('Rate limit reached — max 3 data operations per day.');
-      if (!res.ok) throw new Error(`Request failed (${res.status})`);
-      const data = await res.json();
-      downloadJson(data, `splunk-mocktest-data-${new Date().toISOString().split('T')[0]}.json`);
-      showStatus('success', 'Your data has been downloaded.');
-    } catch (e) {
-      showStatus('error', e.message || 'Download failed. Please try again.');
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  // ── Delete all ──────────────────────────────────────────────────────────────
-  const handleDeleteAll = async () => {
-    setLoading('delete');
-    setStatus(null);
-    try {
-      const payload = getSignedPayload();
-      const res     = await fetch(`${BASE_URL}/privacy/delete-all`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(payload),
-        signal:  AbortSignal.timeout(15000),
-      });
-      if (res.status === 401) throw new Error('Authentication failed — please try again.');
-      if (res.status === 429) throw new Error('Rate limit reached — max 3 data operations per day.');
-      if (!res.ok) throw new Error(`Request failed (${res.status})`);
-
-      // Clear all local data after confirmed D1 wipe
-      clearAllLocalData();
-      setConfirmDelete(false);
-      showStatus('success', 'All your data has been permanently deleted. The page will reload in 3 seconds.', 3500);
-      setTimeout(() => window.location.reload(), 3500);
-    } catch (e) {
-      showStatus('error', e.message || 'Deletion failed. Please try again.');
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  // ── Tracking toggle ─────────────────────────────────────────────────────────
-  const handleTrackingToggle = () => {
-    if (trackingOn) {
-      // Turning off — ask what to do with existing data
-      setShowKeepOrDelete(true);
+  // ── Timer ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (gameState === 'exam' && examConfig.useTimer) {
+      timerRef.current = setInterval(() => {
+        setTimeRemaining(prev => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            const { examType: et, questions: qs, userAnswers: ua } = examStateRef.current;
+            if (et && qs.length > 0) {
+              updateProfile(et, qs, ua, []).catch(err =>
+                console.warn('[App] Profile update on timeout failed:', err.message)
+              );
+              saveSeenConcepts(et, qs);
+            }
+            setIsReviewMode(false);
+            setReviewQuestionHashes([]);
+            setGameState('results');
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
     } else {
-      // Turning on — straightforward
-      setTrackingEnabled(true);
-      setTrackingOn(true);
-      showStatus('success', 'Tracking enabled — your study progress will be saved.');
+      clearInterval(timerRef.current);
     }
-  };
+    return () => clearInterval(timerRef.current);
+  }, [gameState, examConfig.useTimer]);
 
-  const handleKeepData = () => {
-    setTrackingEnabled(false);
-    setTrackingOn(false);
-    setShowKeepOrDelete(false);
-    showStatus('success', 'Tracking disabled. Existing data kept — you can delete it anytime below.');
-  };
+  // ── handleAnswerSelect ─────────────────────────────────────────────────────
+  const handleAnswerSelect = useCallback((optionIndex) => {
+    setUserAnswers(prev => ({ ...prev, [currentQuestionIndex]: optionIndex }));
+  }, [currentQuestionIndex]);
 
-  const handleDeleteExistingData = async () => {
-    setLoading('toggle');
-    try {
-      const payload = getSignedPayload();
-      const res     = await fetch(`${BASE_URL}/privacy/delete-all`, {
+  // ── finishExam ─────────────────────────────────────────────────────────────
+  const finishExam = useCallback(() => {
+    clearInterval(timerRef.current);
+    if (examType && questions.length > 0) {
+      updateProfile(examType, questions, userAnswers, lastValidationLog)
+        .catch(err => console.warn('[App] Profile update failed:', err.message));
+      saveSeenConcepts(examType, questions);
+    }
+    if (isReviewMode && reviewQuestionHashes.length > 0) {
+      clearReviewedAnswers(examType, reviewQuestionHashes);
+    }
+    setIsReviewMode(false);
+    setReviewQuestionHashes([]);
+    setDocPassages([]);
+    setGameState('results');
+  }, [examType, questions, userAnswers, isReviewMode, reviewQuestionHashes, lastValidationLog]);
+
+  // ── handleStartExam ────────────────────────────────────────────────────────
+  const handleStartExam = useCallback(async () => {
+    const rawKey     = apiKeys[examConfig.aiProvider];
+    const currentKey = (examConfig.aiProvider === 'llama' && (!rawKey || !rawKey.trim()))
+      ? DEFAULT_GROQ_KEY
+      : rawKey;
+
+    if (!currentKey || currentKey.trim() === '') {
+      setApiError(`Please enter an API key for ${examConfig.aiProvider.toUpperCase()} in the Advanced Settings to generate the exam.`);
+      return;
+    }
+
+    const groqKey        = apiKeys['llama'];
+    const usingSharedKey = !groqKey || groqKey.trim() === '' || groqKey === DEFAULT_GROQ_KEY;
+
+    if (usingSharedKey && examConfig.aiProvider === 'llama') {
+      const usage = await checkAndIncrementUsage(BASE_URL);
+      if (!usage.allowed) {
+        setApiError(usage.message);
+        return;
+      }
+      if (usage.remaining !== null && usage.remaining <= 2) {
+        console.info(`[Usage] ${usage.remaining} shared-key exam${usage.remaining !== 1 ? 's' : ''} remaining today`);
+      }
+    }
+
+    setGameState('loading');
+    setLoadingText('Retrieving relevant Splunk documentation...');
+
+    const [passages, seenConcepts] = await Promise.all([
+      fetchDocPassages(BASE_URL, examType, examConfig.selectedTopics),
+      getRecentSeenConcepts(examType),
+    ]);
+
+    setDocPassages(passages);
+    if (passages.length > 0)     console.log(`[Layer2] Retrieved ${passages.length} doc passages for grounding`);
+    if (seenConcepts.length > 0) console.log(`[Dedup] Loaded ${seenConcepts.length} previously seen concepts for exclusion`);
+
+    const promptWithDocs = buildAgenticPrompt(
+      examType,
+      examConfig.numQuestions,
+      examConfig.selectedTopics,
+      examConfig.aiProvider,
+      passages,
+      seenConcepts,
+    );
+    const enrichedConfig = { ...examConfig, customPrompt: promptWithDocs, passages };
+
+    setLoadingText(`Generating ${examConfig.numQuestions} dynamic questions using ${examConfig.aiProvider.toUpperCase()}...`);
+
+    const { questions: fetchedQuestions, error, trace: genTrace } = await generateDynamicQuestions(examType, enrichedConfig, currentKey);
+    if (genTrace) console.info('[Trace] Generation:', genTrace);
+    if (error)    setApiError(error);
+
+    if (!fetchedQuestions || !Array.isArray(fetchedQuestions) || fetchedQuestions.length === 0) {
+      setApiError(prev => prev || 'The AI generated an invalid or empty set of questions.');
+      setGameState('menu');
+      return;
+    }
+
+    const validationKey = usingSharedKey ? DEFAULT_GROQ_KEY : groqKey;
+    const bp            = EXAM_BLUEPRINTS[examType];
+
+    const { questions: validatedQuestions, validationLog } = await runValidationPipeline(
+      fetchedQuestions,
+      examType,
+      bp?.level || 'Intermediate-Level',
+      validationKey,
+      (msg) => setLoadingText(msg),
+      usingSharedKey ? 1 : undefined
+    );
+
+    setLastValidationLog(validationLog);
+
+    if (genTrace) {
+      fetch(`${BASE_URL}/traces`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(payload),
-        signal:  AbortSignal.timeout(15000),
-      });
-      if (!res.ok) throw new Error(`Request failed (${res.status})`);
-      clearAllLocalData();
-      setTrackingEnabled(false);
-      setTrackingOn(false);
-      setShowKeepOrDelete(false);
-      showStatus('success', 'Tracking disabled and all data deleted. The page will reload in 3 seconds.', 3500);
-      setTimeout(() => window.location.reload(), 3500);
-    } catch (e) {
-      showStatus('error', e.message || 'Could not delete data. Tracking has been disabled without deleting.');
-      setTrackingEnabled(false);
-      setTrackingOn(false);
-      setShowKeepOrDelete(false);
-    } finally {
-      setLoading(null);
+        body: JSON.stringify({
+          userId: getUserId(),
+          examType,
+          trace: {
+            ...genTrace,
+            questionCount:      validatedQuestions.length,
+            validationCycles:   validationLog.length,
+            validationFailures: validationLog.reduce((s, c) => s + c.failureCount, 0),
+            ragPassageCount:    passages.length,
+          }
+        })
+      }).catch(() => {});
     }
+
+    const randomizedQuestions = validatedQuestions.map(randomizeQuestion);
+
+    setQuestions(randomizedQuestions);
+    setUserAnswers({});
+    setFlaggedQuestions({});
+    setCurrentQuestionIndex(0);
+    setTimeRemaining(randomizedQuestions.length * 52);
+    setGameState('exam');
+  }, [apiKeys, examConfig, examType, buildAgenticPrompt]);
+
+  // ── handleStartReview ──────────────────────────────────────────────────────
+  const handleStartReview = useCallback(async () => {
+    if (!examType) return;
+
+    // ── Tracking guard — must be on for review sessions to work ──────────────
+    // Review sessions depend on the wrong answer bank in D1.
+    // If tracking is off, wrong answers are never written to D1,
+    // so the bank will always be empty and the session will always fail.
+    if (!isTrackingEnabled()) {
+      setApiError(
+        'Study progress tracking is currently disabled.\n\n' +
+        'Review sessions require your wrong answer bank, which is only saved when tracking is enabled.\n\n' +
+        'To use review sessions: open Advanced Settings below the exam config and enable tracking, ' +
+        'then complete an exam — your missed questions will be saved for review.'
+      );
+      return;
+    }
+
+    setGameState('loading');
+    setLoadingText('Fetching your wrong answers from review bank...');
+
+    const { wrongAnswers: dueItems } = await getWrongAnswerBank(examType, false);
+    if (!dueItems || dueItems.length === 0) {
+      setApiError('No wrong answers found in your review bank yet. Complete an exam first to build your bank.');
+      setGameState('results');
+      return;
+    }
+
+    const originalQuestions = dueItems.slice(0, 15).map(item => ({
+      question:     item.question,
+      options:      shuffleWithCorrect(item.correct_answer),
+      correctIndex: 0,
+      answer:       item.correct_answer,
+      topic:        item.topic,
+      _hash:        item.question_hash,
+    })).map(q => {
+      const shuffled = [...q.options].sort(() => Math.random() - 0.5);
+      const norm2 = s => s.trim().replace(/\s+/g, ' ').toLowerCase();
+      const ci2 = shuffled.findIndex(o => norm2(o) === norm2(q.answer));
+      return { ...q, options: shuffled, correctIndex: ci2 !== -1 ? ci2 : 0 };
+    });
+
+    const hashes      = originalQuestions.map(q => q._hash).filter(Boolean);
+    const topicErrors = {};
+    dueItems.forEach(item => {
+      topicErrors[item.topic] = (topicErrors[item.topic] || 0) + item.times_missed;
+    });
+    const weakTopics = Object.entries(topicErrors)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([t]) => t);
+
+    const aiCount     = Math.min(originalQuestions.length, 15);
+    let   aiQuestions = [];
+
+    if (weakTopics.length > 0 && aiCount > 0) {
+      setLoadingText(`Generating ${aiCount} fresh questions on your weak topics...`);
+      const reviewConfig = {
+        ...examConfig,
+        numQuestions:   aiCount,
+        selectedTopics: weakTopics,
+        customPrompt:   buildAgenticPrompt(examType, aiCount, weakTopics, examConfig.aiProvider),
+        passages:       [],
+      };
+      const groqKey        = apiKeys['llama'] || DEFAULT_GROQ_KEY;
+      const usingSharedKey = !apiKeys['llama'] || apiKeys['llama'].trim() === '' || apiKeys['llama'] === DEFAULT_GROQ_KEY;
+
+      const { questions: fetched, trace: reviewTrace } = await generateDynamicQuestions(examType, reviewConfig, groqKey);
+      if (reviewTrace) console.info('[Trace] Review generation:', reviewTrace);
+
+      if (fetched?.length > 0) {
+        const bp = EXAM_BLUEPRINTS[examType];
+        const { questions: refined } = await runValidationPipeline(
+          fetched,
+          examType,
+          bp?.level || 'Intermediate-Level',
+          groqKey,
+          (msg) => setLoadingText(msg),
+          usingSharedKey ? 1 : undefined
+        );
+        aiQuestions = refined.map(q => {
+          const safeAnswer = typeof q.answer === 'string' ? q.answer : '';
+          let opts = Array.isArray(q.options) ? q.options.map(o => typeof o === 'string' ? o : '') : ['A', 'B', 'C', 'D'];
+          while (opts.length < 4) opts.push(`Option ${opts.length + 1}`);
+          const shuffled = [...opts].sort(() => Math.random() - 0.5);
+          const norm3 = s => s.trim().replace(/\s+/g, ' ').toLowerCase();
+          const ci3 = shuffled.findIndex(o => norm3(o) === norm3(safeAnswer));
+          return { ...q, options: shuffled, correctIndex: ci3 !== -1 ? ci3 : 0 };
+        });
+      }
+    }
+
+    const combined = [...originalQuestions, ...aiQuestions].sort(() => Math.random() - 0.5);
+    if (combined.length === 0) {
+      setApiError('Could not build a review session. Please try again.');
+      setGameState('results');
+      return;
+    }
+
+    setIsReviewMode(true);
+    setReviewQuestionHashes(hashes);
+    setQuestions(combined);
+    setUserAnswers({});
+    setFlaggedQuestions({});
+    setCurrentQuestionIndex(0);
+    setTimeRemaining(combined.length * 52);
+    setGameState('exam');
+  }, [examType, examConfig, apiKeys, buildAgenticPrompt]);
+
+  // ── handleCancelToMenu ─────────────────────────────────────────────────────
+  const handleCancelToMenu = useCallback(() => {
+    setShowCancelModal(false);
+    setIsReviewMode(false);
+    setReviewQuestionHashes([]);
+    setGameState('menu');
+  }, []);
+
+  // ── resultsData ────────────────────────────────────────────────────────────
+  const resultsData = useMemo(() => {
+    if (gameState !== 'results') return null;
+    let correct = 0;
+    const weakTopicsMap = {};
+    questions.forEach((q, index) => {
+      if (!q) return;
+      const isCorrect = userAnswers[index] === q.correctIndex;
+      if (isCorrect) correct++;
+      else {
+        const t = q.topic || 'Unknown Topic';
+        weakTopicsMap[t] = (weakTopicsMap[t] || 0) + 1;
+      }
+    });
+    const score  = Math.round((correct / questions.length) * 100);
+    const passed = score >= 70;
+    const topicsToReview = Object.keys(weakTopicsMap)
+      .map(topic => ({ topic, errors: weakTopicsMap[topic] }))
+      .sort((a, b) => b.errors - a.errors);
+    return { correct, total: questions.length, score, passed, topicsToReview };
+  }, [gameState, questions, userAnswers]);
+
+  return {
+    gameState,
+    setGameState,
+    questions,
+    currentQuestionIndex,
+    setCurrentQuestionIndex,
+    userAnswers,
+    flaggedQuestions,
+    setFlaggedQuestions,
+    timeRemaining,
+    loadingText,
+    apiError,
+    setApiError,
+    docPassages,
+    lastValidationLog,
+    isReviewMode,
+    showCancelModal,
+    setShowCancelModal,
+    showGrid,
+    setShowGrid,
+    resultsData,
+    handleAnswerSelect,
+    handleStartExam,
+    handleStartReview,
+    handleCancelToMenu,
+    finishExam,
   };
-
-  return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4">
-      <div className="bg-white max-w-lg w-full shadow-2xl rounded-xl animate-fade-in border border-slate-100 overflow-hidden max-h-[90vh] flex flex-col">
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center">
-              <Shield className="w-4 h-4 text-indigo-600" />
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-800 text-sm">Privacy &amp; Data</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Your rights under GDPR, PDPA, and CCPA</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-
-          {/* Status message */}
-          {status && (
-            <div className={`flex items-start gap-2.5 p-3 rounded-lg text-sm font-medium animate-fade-in
-              ${status.type === 'success'
-                ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
-                : 'bg-red-50 border border-red-200 text-red-700'
-              }`}
-            >
-              {status.type === 'success'
-                ? <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                : <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              }
-              {status.msg}
-            </div>
-          )}
-
-          {/* Anonymous ID */}
-          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-            <p className="text-xs font-semibold text-slate-600 mb-1">Your anonymous ID</p>
-            <p className="text-xs font-mono text-slate-700 break-all">{userId}</p>
-            <p className="text-xs text-slate-400 mt-1">No name, email, or personal information is ever collected.</p>
-          </div>
-
-          {/* What we store */}
-          <div className="border border-slate-100 rounded-lg overflow-hidden">
-            <button
-              onClick={() => setDataInfoOpen(o => !o)}
-              className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
-            >
-              <div className="flex items-center gap-2">
-                <Info className="w-4 h-4 text-indigo-500" />
-                <span className="text-sm font-semibold text-slate-700">What data is stored</span>
-              </div>
-              {dataInfoOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-            </button>
-            {dataInfoOpen && (
-              <div className="px-4 py-3 space-y-2 animate-fade-in">
-                {[
-                  { label: 'Adaptive learning profile', desc: 'Per-topic accuracy, error rates, score history, trend — stored in Cloudflare D1.' },
-                  { label: 'Wrong answer bank', desc: 'Questions you missed with spaced repetition scheduling — stored in Cloudflare D1.' },
-                  { label: 'Seen concepts', desc: 'Hashed question stems to prevent repeat questions — stored in Cloudflare D1.' },
-                  { label: 'Usage count', desc: 'Daily exam count for shared-key rate limiting — stored in Cloudflare D1.' },
-                  { label: 'Generation traces', desc: 'Anonymous AI generation metadata (provider, tokens, latency) — stored in Cloudflare D1.' },
-                  { label: 'Privacy token (hashed)', desc: 'A SHA-256 hash of your deletion token — used to authenticate data download and delete requests. The raw token is stored in your browser only and never sent to our servers.' },
-                  { label: 'Local preferences', desc: 'API keys, tracking toggle, consent flag — stored in your browser only, never sent to our servers.' },
-                ].map(item => (
-                  <div key={item.label} className="flex gap-2">
-                    <div className="w-1 h-1 rounded-full bg-indigo-400 flex-shrink-0 mt-1.5" />
-                    <div>
-                      <span className="text-xs font-semibold text-slate-700">{item.label}</span>
-                      <span className="text-xs text-slate-500 ml-1">{item.desc}</span>
-                    </div>
-                  </div>
-                ))}
-                <p className="text-xs text-slate-400 pt-1 border-t border-slate-100 mt-2">
-                  Community stats are anonymized aggregates — no userId is stored in that table.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Tracking toggle */}
-          <div className="border border-slate-100 rounded-lg p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex-grow min-w-0 mr-4">
-                <p className="text-sm font-semibold text-slate-800">Study progress tracking</p>
-                <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  When enabled, your performance data is saved to Cloudflare D1 so adaptive learning, spaced repetition, and cross-session dedup work. When disabled, review sessions and cross-device sync become unavailable — only local session data is kept. You can also toggle this in Config → Advanced Settings.
-                </p>
-              </div>
-              <button
-                onClick={handleTrackingToggle}
-                disabled={!!loading}
-                className="flex-shrink-0 transition-colors"
-                aria-label={trackingOn ? 'Disable tracking' : 'Enable tracking'}
-              >
-                {trackingOn
-                  ? <ToggleRight className="w-10 h-10 text-indigo-600" />
-                  : <ToggleLeft  className="w-10 h-10 text-slate-400" />
-                }
-              </button>
-            </div>
-
-            {/* Keep or delete choice */}
-            {showKeepOrDelete && (
-              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg animate-fade-in">
-                <p className="text-xs font-semibold text-amber-800 mb-3">
-                  What should happen to your existing data?
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleKeepData}
-                    disabled={!!loading}
-                    className="flex-1 py-2 text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
-                  >
-                    Keep it
-                  </button>
-                  <button
-                    onClick={handleDeleteExistingData}
-                    disabled={!!loading}
-                    className="flex-1 py-2 text-xs font-semibold bg-red-600 text-white hover:bg-red-700 rounded-lg transition-colors flex items-center justify-center gap-1"
-                  >
-                    {loading === 'toggle'
-                      ? <><div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Deleting...</>
-                      : 'Delete it'
-                    }
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Download */}
-          <div className="border border-slate-100 rounded-lg p-4">
-            <div className="flex items-start gap-3 mb-3">
-              <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                <Download className="w-4 h-4 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-800">Download my data</p>
-                <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  Export everything stored about you as a JSON file. Right to data portability under GDPR Art. 20 and PDPA.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={handleDownload}
-              disabled={!!loading}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading === 'download'
-                ? <><div className="w-4 h-4 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" /> Downloading...</>
-                : <><Download className="w-4 h-4" /> Download my data</>
-              }
-            </button>
-          </div>
-
-          {/* Delete all */}
-          <div className="border border-red-100 rounded-lg p-4">
-            <div className="flex items-start gap-3 mb-3">
-              <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                <Trash2 className="w-4 h-4 text-red-600" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-800">Delete all my data</p>
-                <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  Permanently erases all data stored about you in Cloudflare D1 and clears your browser storage. Right to erasure under GDPR Art. 17, PDPA, and CCPA. This cannot be undone.
-                </p>
-              </div>
-            </div>
-
-            {!confirmDelete ? (
-              <button
-                onClick={() => setConfirmDelete(true)}
-                disabled={!!loading}
-                className="w-full py-2.5 rounded-lg text-sm font-semibold bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 transition-colors disabled:opacity-50"
-              >
-                Delete all my data
-              </button>
-            ) : (
-              <div className="space-y-2 animate-fade-in">
-                <p className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                  This will permanently delete your adaptive profile, wrong answer bank, seen concepts, usage data, and privacy token record. This cannot be undone.
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setConfirmDelete(false)}
-                    disabled={!!loading}
-                    className="flex-1 py-2.5 text-sm font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDeleteAll}
-                    disabled={!!loading}
-                    className="flex-1 py-2.5 text-sm font-bold bg-red-600 text-white hover:bg-red-700 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
-                  >
-                    {loading === 'delete'
-                      ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Deleting...</>
-                      : <><Trash2 className="w-4 h-4" /> Yes, delete everything</>
-                    }
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Legal note */}
-          <p className="text-xs text-slate-400 text-center pb-1 leading-relaxed">
-            Data is processed under your consent given at first use. You may withdraw at any time using the controls above. Covered under GDPR (EU), PDPA (Philippines RA 10173), and CCPA (California).
-          </p>
-
-        </div>
-      </div>
-    </div>
-  );
 }

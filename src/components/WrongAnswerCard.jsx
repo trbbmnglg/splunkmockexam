@@ -46,11 +46,6 @@ export default function WrongAnswerCard({
     doFetch();
   };
 
-  // URL resolution priority:
-  // 1. RAG-retrieved URL from the explainer agent (most accurate)
-  // 2. Question-generation docSource — BUT only if the explainer was NOT RAG-grounded,
-  //    since a RAG-grounded response means the generation-time URL is likely unrelated
-  // 3. Topic-scoped Splunk search fallback
   const ragUrl = explanation?.docSource;
   const fallbackDocSource = explanation?.ragGrounded ? '' : (docSource || '');
   const docsUrl =
@@ -58,12 +53,24 @@ export default function WrongAnswerCard({
     fallbackDocSource ||
     `https://docs.splunk.com/Documentation/Splunk/latest/Search?q=${encodeURIComponent(topic)}`;
 
+  // Depth label colour
+  const depthMeta = {
+    basic:    { label: 'Basic explanation',          bg: 'bg-slate-100',   text: 'text-slate-500'   },
+    detailed: { label: 'Detailed explanation',       bg: 'bg-orange-50',   text: 'text-orange-600'  },
+    deep:     { label: 'Deep first-principles',      bg: 'bg-red-50',      text: 'text-red-600'     },
+  };
+  const depth = explanation?.depthTier ? depthMeta[explanation.depthTier] : null;
+
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+
+      {/* ── Question header ── */}
       <div className="p-4 bg-white">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-grow min-w-0">
-            <div className="flex items-center gap-2 mb-2 flex-wrap">
+
+            {/* Meta row */}
+            <div className="flex items-center gap-2 mb-2.5 flex-wrap">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Q{questionIndex + 1}</span>
               <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium truncate">{topic}</span>
               {timesMissed >= 3 && (
@@ -77,22 +84,28 @@ export default function WrongAnswerCard({
                 </span>
               )}
             </div>
-            <p className="text-sm font-medium text-slate-800 leading-relaxed">{question}</p>
-            <div className="mt-3 space-y-1.5">
+
+            {/* Question text */}
+            <p className="text-sm font-medium text-slate-800 leading-relaxed mb-3">{question}</p>
+
+            {/* Answer comparison */}
+            <div className="space-y-2">
               <div className="flex items-start gap-2">
-                <XCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <span className="text-xs text-red-700 leading-relaxed">
-                  <span className="font-semibold">You answered:</span> {yourAnswer}
+                <XCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                <span className="text-xs text-slate-600 leading-relaxed">
+                  <span className="font-semibold text-red-600">You answered:</span> {yourAnswer}
                 </span>
               </div>
               <div className="flex items-start gap-2">
-                <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
-                <span className="text-xs text-green-700 leading-relaxed">
-                  <span className="font-semibold">Correct answer:</span> {correctAnswer}
+                <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
+                <span className="text-xs text-slate-600 leading-relaxed">
+                  <span className="font-semibold text-emerald-600">Correct answer:</span> {correctAnswer}
                 </span>
               </div>
             </div>
           </div>
+
+          {/* Why? button */}
           <button
             onClick={handleExpand}
             className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all border ${
@@ -110,8 +123,9 @@ export default function WrongAnswerCard({
         </div>
       </div>
 
+      {/* ── Loading ── */}
       {open && state === 'loading' && (
-        <div className="px-4 pb-4 pt-1 bg-indigo-50/50 border-t border-slate-100">
+        <div className="px-4 pb-4 pt-3 bg-indigo-50/40 border-t border-indigo-100">
           <div className="flex items-center gap-2 text-indigo-600 text-sm">
             <div className="w-4 h-4 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin flex-shrink-0" />
             <span>Retrieving docs &amp; generating explanation...</span>
@@ -119,50 +133,62 @@ export default function WrongAnswerCard({
         </div>
       )}
 
+      {/* ── Error ── */}
       {open && state === 'error' && (
-        <div className="px-4 pb-4 pt-1 bg-red-50 border-t border-red-100">
+        <div className="px-4 pb-4 pt-3 bg-red-50 border-t border-red-100">
           <div className="flex items-center gap-2 text-red-600 text-sm">
             <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-            <span>{errorMsg}</span>
-            <button onClick={handleRetry} className="ml-auto text-xs underline hover:no-underline">Retry</button>
+            <span className="flex-grow">{errorMsg}</span>
+            <button onClick={handleRetry} className="text-xs underline hover:no-underline flex-shrink-0">Retry</button>
           </div>
         </div>
       )}
 
+      {/* ── Explanation ── */}
       {open && state === 'done' && explanation && (
-        <div className="px-4 pb-4 pt-3 bg-gradient-to-b from-indigo-50/60 to-white border-t border-indigo-100 space-y-3 animate-fade-in">
+        <div className="border-t border-indigo-100 animate-fade-in">
 
-          {/* RAG grounded indicator */}
-          {explanation.ragGrounded && (
-            <div className="flex items-center gap-1.5 text-xs text-teal-700 bg-teal-50 border border-teal-100 rounded-md px-2.5 py-1.5">
-              <Zap className="w-3 h-3 flex-shrink-0" />
-              Grounded in official Splunk documentation
-            </div>
-          )}
+          {/* Top meta bar */}
+          <div className="px-4 pt-3 pb-2 bg-indigo-50/50 flex items-center gap-2 flex-wrap">
+            {explanation.ragGrounded && (
+              <div className="flex items-center gap-1.5 text-xs text-teal-700 bg-teal-50 border border-teal-100 rounded-md px-2.5 py-1">
+                <Zap className="w-3 h-3 flex-shrink-0" />
+                Grounded in official Splunk documentation
+              </div>
+            )}
+            {depth && (
+              <div className={`flex items-center text-xs font-medium px-2.5 py-1 rounded-md ${depth.bg} ${depth.text}`}>
+                {depth.label}
+              </div>
+            )}
+          </div>
 
-          <p className="text-sm text-slate-700 leading-relaxed">{explanation.explanation}</p>
+          {/* Explanation body */}
+          <div className="px-4 pb-4 pt-2 bg-gradient-to-b from-indigo-50/30 to-white space-y-3">
+            <p className="text-sm text-slate-700 leading-[1.75]">{explanation.explanation}</p>
 
-          {explanation.keyTakeaway && (
-            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
-              <Star className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-              <p className="text-xs font-medium text-amber-800 leading-relaxed">{explanation.keyTakeaway}</p>
-            </div>
-          )}
+            {explanation.keyTakeaway && (
+              <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <Star className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs font-medium text-amber-800 leading-relaxed">{explanation.keyTakeaway}</p>
+              </div>
+            )}
 
-          {explanation.docHint && (
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <BookOpen className="w-3.5 h-3.5 flex-shrink-0" />
-              <span>{explanation.docHint}</span>
-              <a
-                href={docsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ml-auto flex items-center gap-1 text-pink-600 hover:text-pink-800 font-semibold transition-colors flex-shrink-0"
-              >
-                Open Docs <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-          )}
+            {explanation.docHint && (
+              <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
+                <BookOpen className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                <span className="text-xs text-slate-500 flex-grow leading-relaxed">{explanation.docHint}</span>
+                <a
+                  href={docsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-pink-600 hover:text-pink-800 font-semibold transition-colors flex-shrink-0"
+                >
+                  Open Docs <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

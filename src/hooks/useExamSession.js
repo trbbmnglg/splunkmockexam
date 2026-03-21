@@ -1,12 +1,10 @@
 /**
  * hooks/useExamSession.js
  *
- * Owns all exam session state and the handlers that mutate it.
- * The timer lives here because it directly drives setTimeRemaining
- * and reads examStateRef — co-locating them avoids prop drilling
- * between hooks.
- *
- * Exports everything App.jsx needs to pass down to screen components.
+ * Changes in this version:
+ *   - handleStartReview: added isTrackingEnabled() guard at the top.
+ *     If tracking is off, shows a clear actionable error instead of
+ *     hitting D1 and getting the confusing "no wrong answers" message.
  */
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -21,6 +19,7 @@ import {
   getRecentSeenConcepts,
   getUserId,
 } from '../utils/agentAdaptive';
+import { isTrackingEnabled } from '../utils/privacyToken';
 
 const BASE_URL = import.meta.env.MODE === 'development'
   ? '/api'
@@ -138,7 +137,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
   const [showGrid,        setShowGrid]        = useState(false);
 
   // ── Refs ───────────────────────────────────────────────────────────────────
-  const timerRef    = useRef(null);
+  const timerRef     = useRef(null);
   const examStateRef = useRef({ examType, questions, userAnswers });
 
   useEffect(() => {
@@ -224,7 +223,6 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
     setGameState('loading');
     setLoadingText('Retrieving relevant Splunk documentation...');
 
-    // RAG + seen concepts in parallel
     const [passages, seenConcepts] = await Promise.all([
       fetchDocPassages(BASE_URL, examType, examConfig.selectedTopics),
       getRecentSeenConcepts(examType),
@@ -270,7 +268,6 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
 
     setLastValidationLog(validationLog);
 
-    // Persist generation trace
     if (genTrace) {
       fetch(`${BASE_URL}/traces`, {
         method:  'POST',
@@ -302,6 +299,21 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
   // ── handleStartReview ──────────────────────────────────────────────────────
   const handleStartReview = useCallback(async () => {
     if (!examType) return;
+
+    // ── Tracking guard — must be on for review sessions to work ──────────────
+    // Review sessions depend on the wrong answer bank in D1.
+    // If tracking is off, wrong answers are never written to D1,
+    // so the bank will always be empty and the session will always fail.
+    if (!isTrackingEnabled()) {
+      setApiError(
+        'Study progress tracking is currently disabled.\n\n' +
+        'Review sessions require your wrong answer bank, which is only saved when tracking is enabled.\n\n' +
+        'To use review sessions: open Advanced Settings below the exam config and enable tracking, ' +
+        'then complete an exam — your missed questions will be saved for review.'
+      );
+      return;
+    }
+
     setGameState('loading');
     setLoadingText('Fetching your wrong answers from review bank...');
 
@@ -334,7 +346,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
       .slice(0, 3)
       .map(([t]) => t);
 
-    const aiCount    = Math.min(originalQuestions.length, 15);
+    const aiCount     = Math.min(originalQuestions.length, 15);
     let   aiQuestions = [];
 
     if (weakTopics.length > 0 && aiCount > 0) {
@@ -420,7 +432,6 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
   }, [gameState, questions, userAnswers]);
 
   return {
-    // state
     gameState,
     setGameState,
     questions,
@@ -440,9 +451,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
     setShowCancelModal,
     showGrid,
     setShowGrid,
-    // derived
     resultsData,
-    // handlers
     handleAnswerSelect,
     handleStartExam,
     handleStartReview,

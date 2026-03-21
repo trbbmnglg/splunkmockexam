@@ -1,28 +1,29 @@
 /**
  * src/components/ShareProfileModal.jsx
  *
- * Modal that shows a QR code encoding the user's encrypted userId.
- * Scanning on another device transfers the full adaptive profile,
- * wrong answer bank, seen concepts, and usage limits automatically.
- *
- * Requires: npm install react-qr-code
+ * Changes in this version:
+ *   - Added tracking-off warning banner. When tracking is disabled,
+ *     D1 has no data to transfer. QR code still generates (userId
+ *     transfers), but user is informed that study data won't come with it.
  */
 
 import { useState, useEffect } from 'react';
-import { X, QrCode, Copy, CheckCircle, AlertTriangle, Smartphone } from 'lucide-react';
+import { X, QrCode, Copy, CheckCircle, AlertTriangle, Info } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import { encryptUserId } from '../utils/qrCrypto';
 import { getUserId } from '../utils/agentAdaptive';
+import { isTrackingEnabled } from '../utils/privacyToken';
 
 const BASE_URL = import.meta.env.MODE === 'development'
   ? 'http://localhost:5173'
   : 'https://splunkmockexam.gtaad-innovations.com';
 
 export default function ShareProfileModal({ onClose }) {
-  const [qrUrl,   setQrUrl]   = useState(null);
-  const [copied,  setCopied]  = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(false);
+  const [qrUrl,    setQrUrl]    = useState(null);
+  const [copied,   setCopied]   = useState(false);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState(false);
+  const trackingOn = isTrackingEnabled();
 
   useEffect(() => {
     let cancelled = false;
@@ -49,7 +50,6 @@ export default function ShareProfileModal({ onClose }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     } catch {
-      // Fallback for browsers that block clipboard without HTTPS
       const ta = document.createElement('textarea');
       ta.value = qrUrl;
       ta.style.position = 'fixed';
@@ -88,7 +88,22 @@ export default function ShareProfileModal({ onClose }) {
         </div>
 
         {/* Body */}
-        <div className="px-6 py-6 space-y-5">
+        <div className="px-6 py-6 space-y-4">
+
+          {/* Tracking-off warning — shown when tracking is disabled */}
+          {!trackingOn && (
+            <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-3">
+              <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-semibold text-amber-800 mb-0.5">Tracking is disabled</p>
+                <p className="text-xs text-amber-700 leading-relaxed">
+                  Your adaptive profile and wrong answer bank are not saved to our servers.
+                  Scanning this QR code will only transfer your anonymous ID — study data won't follow.
+                  Enable tracking in <span className="font-semibold">Config → Advanced Settings</span> to transfer full study progress.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* QR code area */}
           <div className="flex items-center justify-center bg-slate-50 border border-slate-100 rounded-xl p-6 min-h-[220px]">
@@ -106,33 +121,35 @@ export default function ShareProfileModal({ onClose }) {
             )}
             {!loading && !error && qrUrl && (
               <div className="p-3 bg-white rounded-lg shadow-sm border border-slate-100">
-                <QRCode
-                  value={qrUrl}
-                  size={180}
-                  level="M"
-                  style={{ display: 'block' }}
-                />
+                <QRCode value={qrUrl} size={180} level="M" style={{ display: 'block' }} />
               </div>
             )}
           </div>
 
           {/* What transfers */}
-          <div className="bg-indigo-50 border border-indigo-100 rounded-lg px-4 py-3">
-            <p className="text-xs font-semibold text-indigo-800 mb-2">What transfers to the new device</p>
+          <div className={`rounded-lg px-4 py-3 border ${trackingOn ? 'bg-indigo-50 border-indigo-100' : 'bg-slate-50 border-slate-200'}`}>
+            <div className="flex items-center gap-1.5 mb-2">
+              <Info className={`w-3.5 h-3.5 flex-shrink-0 ${trackingOn ? 'text-indigo-500' : 'text-slate-400'}`} />
+              <p className={`text-xs font-semibold ${trackingOn ? 'text-indigo-800' : 'text-slate-600'}`}>
+                What transfers to the new device
+              </p>
+            </div>
             <div className="grid grid-cols-2 gap-1">
               {[
-                'Adaptive learning profile',
-                'Wrong answer bank',
-                'Seen concepts (dedup)',
-                'Daily usage count',
+                { label: 'Adaptive learning profile', enabled: trackingOn },
+                { label: 'Wrong answer bank',         enabled: trackingOn },
+                { label: 'Seen concepts (dedup)',      enabled: trackingOn },
+                { label: 'Daily usage count',          enabled: trackingOn },
               ].map(item => (
-                <div key={item} className="flex items-center gap-1.5">
-                  <div className="w-1 h-1 rounded-full bg-indigo-400 flex-shrink-0" />
-                  <span className="text-xs text-indigo-700">{item}</span>
+                <div key={item.label} className="flex items-center gap-1.5">
+                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${item.enabled ? 'bg-indigo-400' : 'bg-slate-300'}`} />
+                  <span className={`text-xs ${item.enabled ? 'text-indigo-700' : 'text-slate-400 line-through'}`}>
+                    {item.label}
+                  </span>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-indigo-500 mt-2">API keys are not transferred for security.</p>
+            <p className="text-xs text-slate-400 mt-2">API keys are not transferred for security.</p>
           </div>
 
           {/* Copy link fallback */}
@@ -153,7 +170,6 @@ export default function ShareProfileModal({ onClose }) {
             }
           </button>
 
-          {/* Expiry note */}
           <p className="text-center text-xs text-slate-400">
             This link expires in 24 hours. Scan with your phone camera or any QR reader.
           </p>

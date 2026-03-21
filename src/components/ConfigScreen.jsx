@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Settings, X, ChevronRight, ListChecks, Clock, BookOpen, Cpu,
   Key, Lock, CheckCircle, ShieldCheck, Globe, Zap, RotateCcw,
@@ -92,6 +92,15 @@ export default function ConfigScreen({
       advancedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 50);
   };
+
+  // ── Auto-scroll on mount if navigated here with showAdvanced already true ─
+  useEffect(() => {
+    if (showAdvanced && advancedRef.current) {
+      setTimeout(() => {
+        advancedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  }, []);
 
   return (
     <div className="max-w-3xl mx-auto w-full animate-fade-in bg-white shadow-xl p-6 md:p-10 border border-slate-100 rounded-lg">

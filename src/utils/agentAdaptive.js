@@ -16,6 +16,12 @@
  *     instead of adaptive weighting — still covered, no longer over-weighted.
  *   - Un-graduation is automatic: if latest score drops below threshold,
  *     graduated_at is cleared server-side and the topic re-enters weighting.
+ *
+ * Cross-session duplicate detection (v5):
+ *   - saveSeenConcepts() hashes question stems and saves to D1 after each exam.
+ *   - getRecentSeenConcepts() fetches the last 50 concept hints for prompt injection.
+ *   - buildAgenticPrompt in App.jsx uses these to tell the LLM which concepts
+ *     to avoid re-generating.
  */
 
 const LOCAL_KEY              = 'splunkAdaptiveProfile';
@@ -64,8 +70,6 @@ const computeRollingTrend = (scoreHistory, lastScore, prevScore) => {
 };
 
 // ─── Client-side graduation check (mirrors server logic) ─────────────────────
-// Used to update localStorage immediately after a session without waiting
-// for the next D1 sync. Server is authoritative; this keeps localStorage fresh.
 const computeGraduatedAt = (scoreHistory, existingGraduatedAt, now) => {
   if (!Array.isArray(scoreHistory) || scoreHistory.length < GRADUATION_WINDOW) return null;
   const latestScore = scoreHistory[scoreHistory.length - 1];
@@ -208,7 +212,7 @@ export const updateProfile = async (examType, questions, userAnswers, validation
     validationFailureRate: topicValidationFailures[topic] ?? 0,
   }));
 
-  // D1 write (non-blocking) — server handles graduation authoritatively
+  // D1 write (non-blocking)
   fetch(`${BASE_URL}/profile`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -233,8 +237,7 @@ export const updateProfile = async (examType, questions, userAnswers, validation
     }).catch(err => console.warn('[Adaptive] Wrong answers write failed:', err.message));
   }
 
-  // localStorage write — mirror D1 graduation logic client-side so UI is
-  // immediately up to date without waiting for the next loadProfile() call
+  // localStorage write
   const local = loadLocalProfile();
   if (!local[examType]) local[examType] = { sessions: 0, lastUpdated: null, topics: {} };
   const examProfile       = local[examType];
@@ -281,8 +284,6 @@ export const updateProfile = async (examType, questions, userAnswers, validation
 };
 
 // ─── Exam-readiness score ─────────────────────────────────────────────────────
-// Graduated topics contribute 100% accuracy to the readiness score — they are
-// fully mastered and no longer drag the score down.
 export const computeExamReadiness = (examType, blueprintTopics) => {
   if (!blueprintTopics || blueprintTopics.length === 0) return null;
 
@@ -302,7 +303,6 @@ export const computeExamReadiness = (examType, blueprintTopics) => {
       ? Math.round((profile.errors / profile.attempts) * 100)
       : null;
 
-    // Graduated topics are treated as 100% accurate
     const accuracy     = isGrad ? 100 : (errorRate !== null ? Math.max(0, 100 - errorRate) : 50);
     const contribution = accuracy * weight;
 
@@ -358,8 +358,6 @@ export const computeExamReadiness = (examType, blueprintTopics) => {
 };
 
 // ─── Build adaptive prompt context ───────────────────────────────────────────
-// Graduated topics receive exactly 1 question (floor allocation) instead of
-// the normal adaptive weighting. This frees up allocation for weak topics.
 export const buildAdaptiveContext = (examType, numQuestions, blueprintTopics) => {
   const local       = loadLocalProfile();
   const examProfile = local[examType];
@@ -375,7 +373,7 @@ export const buildAdaptiveContext = (examType, numQuestions, blueprintTopics) =>
       name,
       errorRate:             Math.round(errorRate * 100),
       trend:                 stats.trend,
-      priority:              isGraduated ? -1 : errorRate * recencyFactor, // graduated always sort last
+      priority:              isGraduated ? -1 : errorRate * recencyFactor,
       lastScore:             stats.lastScore,
       scoreHistory:          stats.scoreHistory || [],
       validationFailureRate: stats.validationFailureRate ?? 0,
@@ -394,14 +392,11 @@ export const buildAdaptiveContext = (examType, numQuestions, blueprintTopics) =>
     return { adaptivePromptSection: '', adaptiveSummary: null };
   }
 
-  // Graduated topics: floor of 1 question each
-  const graduatedAllocation = graduatedTopics.length; // 1 per graduated topic
+  const graduatedAllocation = graduatedTopics.length;
   const remainingQuestions  = Math.max(1, numQuestions - graduatedAllocation);
 
-  // Active topics share the remaining budget
   const baseWeight   = remainingQuestions / Math.max(activeTopics.length, 1);
   const distribution = [
-    // Active topics — normal adaptive weighting on remaining budget
     ...activeTopics.map(t => {
       let count;
       if (t.errorRate > 60)                                  count = Math.ceil(baseWeight * 1.8);
@@ -411,11 +406,9 @@ export const buildAdaptiveContext = (examType, numQuestions, blueprintTopics) =>
       else                                                   count = Math.round(baseWeight);
       return { ...t, adaptiveCount: Math.max(1, count) };
     }),
-    // Graduated topics — exactly 1 question each
     ...graduatedTopics.map(t => ({ ...t, adaptiveCount: 1 })),
   ];
 
-  // Adjust active topics to hit exact total
   let total = distribution.reduce((s, t) => s + t.adaptiveCount, 0);
   let i = 0;
   const activeIndices = distribution.map((t, idx) => (!t.graduated ? idx : -1)).filter(idx => idx >= 0);
@@ -534,4 +527,52 @@ export const clearReviewedAnswers = (examType, questionHashes) => {
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ userId, examType, questionHashes })
   }).catch(err => console.warn('[Adaptive] Clear reviewed answers failed:', err.message));
+};
+
+// ─── Cross-session duplicate detection ───────────────────────────────────────
+
+// Simple hash of a question stem — same algorithm as wrongAnswers.js
+function hashConcept(str) {
+  let hash = 0;
+  const s = (str || '').slice(0, 200);
+  for (let i = 0; i < s.length; i++) {
+    const char = s.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+// Called in finishExam — saves all question stems from this session
+export const saveSeenConcepts = (examType, questions) => {
+  const userId = getUserId();
+  if (!questions || questions.length === 0) return;
+
+  const concepts = questions.map(q => ({
+    hash:  hashConcept(q.question),
+    hint:  (q.question || '').slice(0, 80),
+    topic: q.topic || 'General',
+  }));
+
+  fetch(`${BASE_URL}/seen-concepts`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ userId, examType, concepts }),
+  }).catch(err => console.warn('[Adaptive] saveSeenConcepts failed:', err.message));
+};
+
+// Called in handleStartExam — fetches recent concept hints for prompt injection
+export const getRecentSeenConcepts = async (examType) => {
+  const userId = getUserId();
+  try {
+    const res = await fetch(
+      `${BASE_URL}/seen-concepts?userId=${encodeURIComponent(userId)}&examType=${encodeURIComponent(examType)}&limit=50`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return data.concepts || [];
+    }
+  } catch { /* non-fatal — missing seen concepts just means no dedup this session */ }
+  return [];
 };

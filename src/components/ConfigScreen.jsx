@@ -148,8 +148,8 @@ export default function ConfigScreen({
               <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${examConfig.useTimer ? 'transform translate-x-6' : ''}`} />
             </div>
             <div className="ml-4">
-              <div className="font-bold text-slate-800">{examConfig.useTimer ? 'Timer Enabled' : 'Untimed Practice'}</div>
-              <div className="text-sm text-slate-500">{examConfig.useTimer ? 'A strict countdown timer will run based on question count.' : 'Take your time without any pressure.'}</div>
+              <div className="font-semibold text-slate-800">{examConfig.useTimer ? 'Timer Enabled' : 'Untimed Practice'}</div>
+              <div className="text-sm text-slate-500 mt-0.5 leading-relaxed">{examConfig.useTimer ? 'A strict countdown timer will run based on question count.' : 'Take your time without any pressure.'}</div>
             </div>
           </label>
         </div>
@@ -166,20 +166,22 @@ export default function ConfigScreen({
               <button onClick={() => setExamConfig(prev => ({ ...prev, selectedTopics: [] }))} className="text-sm text-slate-500 hover:text-slate-700 font-semibold">Clear All</button>
             </div>
           </div>
-          <p className="text-sm text-slate-500 mb-4">If no topics are selected, the exam will cover all topics randomly.</p>
-          <div className="grid sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto p-1 pr-2">
+          <p className="text-sm text-slate-500 mb-4 leading-relaxed">If no topics are selected, the exam will cover all topics randomly.</p>
+
+          {/* ── Topic list — improved density and readability ── */}
+          <div className="grid sm:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto p-1 pr-2">
             {TOPICS[examType].map((topic, idx) => {
-              const isSelected      = examConfig.selectedTopics.includes(topic);
-              const topicReadiness  = readiness?.breakdown?.find(t => t.name === topic);
-              const hasData         = topicReadiness?.attempted;
-              const accuracy        = topicReadiness?.accuracy;
-              const isGraduated     = !!(topicReadiness?.graduated);
+              const isSelected     = examConfig.selectedTopics.includes(topic);
+              const topicReadiness = readiness?.breakdown?.find(t => t.name === topic);
+              const hasData        = topicReadiness?.attempted;
+              const accuracy       = topicReadiness?.accuracy;
+              const isGraduated    = !!(topicReadiness?.graduated);
 
               return (
                 <div
                   key={idx}
                   onClick={() => toggleTopic(topic)}
-                  className={`p-3 border rounded cursor-pointer transition-all flex items-start space-x-3 ${
+                  className={`px-3 py-3 border rounded-lg cursor-pointer transition-all flex items-start gap-3 ${
                     isGraduated
                       ? isSelected
                         ? 'bg-emerald-50 border-emerald-400'
@@ -189,6 +191,7 @@ export default function ConfigScreen({
                         : 'bg-white border-slate-200 hover:border-pink-300'
                   }`}
                 >
+                  {/* Checkbox */}
                   <div className={`mt-0.5 flex-shrink-0 w-5 h-5 border rounded flex items-center justify-center transition-colors ${
                     isGraduated && isSelected ? 'bg-emerald-500 border-emerald-500' :
                     isSelected                ? 'bg-pink-500 border-pink-500'       :
@@ -199,10 +202,12 @@ export default function ConfigScreen({
                       : <CheckCircle className="w-3.5 h-3.5 text-white" />
                     )}
                   </div>
+
+                  {/* Content */}
                   <div className="flex-grow min-w-0">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 mb-1">
                       {isGraduated && <GraduationCap className="w-3 h-3 text-emerald-500 flex-shrink-0" />}
-                      <span className={`text-sm font-medium ${
+                      <span className={`text-sm font-medium leading-snug ${
                         isGraduated ? 'text-emerald-800' :
                         isSelected  ? 'text-pink-900'    :
                                       'text-slate-700'
@@ -210,14 +215,14 @@ export default function ConfigScreen({
                     </div>
 
                     {isGraduated ? (
-                      <span className="text-xs text-emerald-600 font-semibold mt-0.5 block">
+                      <span className="text-xs text-emerald-600 font-medium">
                         Mastered 🎓 — 1 question (maintenance)
                       </span>
                     ) : hasData ? (
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <div className="flex-grow h-1 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <div className="flex-grow h-1.5 bg-slate-100 rounded-full overflow-hidden">
                           <div
-                            className={`h-full rounded-full ${
+                            className={`h-full rounded-full transition-all ${
                               accuracy >= 80 ? 'bg-emerald-400' :
                               accuracy >= 60 ? 'bg-blue-400'    :
                               accuracy >= 40 ? 'bg-amber-400'   :
@@ -301,18 +306,18 @@ export default function ConfigScreen({
                     />
                   </div>
                   {examConfig.aiProvider === 'llama' && !apiKeys['llama'] ? (
-                    <p className="text-xs text-green-700 mt-2 flex items-center font-medium bg-green-50 p-2 border border-green-200 rounded">
+                    <p className="text-xs text-green-700 mt-2 flex items-center font-medium bg-green-50 p-2 border border-green-200 rounded leading-relaxed">
                       <CheckCircle className="w-4 h-4 mr-1.5 flex-shrink-0" /> A shared Groq key is pre-configured. You can start the exam immediately, or paste your own key for higher rate limits and quality validation.
                     </p>
                   ) : (
-                    <p className="text-xs text-green-700 mt-2 flex items-center font-medium bg-green-50 p-2 border border-green-200 rounded">
+                    <p className="text-xs text-green-700 mt-2 flex items-center font-medium bg-green-50 p-2 border border-green-200 rounded leading-relaxed">
                       <ShieldCheck className="w-4 h-4 mr-1.5 flex-shrink-0" /> Security Note: Your key is stored securely in your browser's local storage and is never sent to our servers.
                     </p>
                   )}
                 </div>
 
                 {examConfig.aiProvider === 'perplexity' && (
-                  <div className="bg-purple-50 text-purple-800 p-3 mt-3 text-sm flex items-start border border-purple-200 rounded">
+                  <div className="bg-purple-50 text-purple-800 p-3 mt-3 text-sm flex items-start border border-purple-200 rounded leading-relaxed">
                     <Globe className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" />
                     <p>Perplexity AI explicitly searches the live web to combine the latest {YEAR_RANGE} official Splunk documentation to ensure maximum accuracy.</p>
                   </div>
@@ -339,7 +344,7 @@ export default function ConfigScreen({
                     </button>
                   )}
                 </div>
-                <p className="text-xs text-slate-500 mb-3">
+                <p className="text-xs text-slate-500 mb-3 leading-relaxed">
                   This prompt is dynamically updated based on your selections above. Feel free to edit it manually to force specific difficulty levels, tricky scenarios, or version focus (like {CURRENT_YEAR} standards).
                 </p>
                 <textarea

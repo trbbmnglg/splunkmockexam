@@ -4,7 +4,8 @@ import { handleWrongAnswers } from './routes/wrongAnswers.js';
 import { handleRetrieve } from './routes/retrieve.js';
 import { handleWebhook } from './routes/webhook.js';
 import { handleUsage }   from './routes/usage.js';
-import { handleTraces } from './routes/traces.js';
+import { handleTraces }  from './routes/traces.js';
+import { handleSeenConcepts } from './routes/seenConcepts.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -57,6 +58,10 @@ export default {
 
       if (url.pathname === '/api/traces') {
         return await handleTraces(request, env, ok, err);
+      }
+
+      if (url.pathname === '/api/seen-concepts') {
+        return await handleSeenConcepts(request, env, ok, err);
       }
 
       return err('Endpoint not found', 404);

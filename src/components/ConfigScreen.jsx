@@ -440,16 +440,19 @@ export default function ConfigScreen({
                       Get API Key <ExternalLink className="w-3 h-3 ml-1" />
                     </a>
                   </div>
-                  <div className={`flex items-center border rounded focus-within:ring-1 transition-all overflow-hidden ${examConfig.aiProvider === 'llama' && !apiKeys['llama'] ? 'bg-green-50 border-green-300 focus-within:border-green-500 focus-within:ring-green-300' : 'bg-white border-slate-300 focus-within:border-pink-500 focus-within:ring-pink-500'}`}>
-                    <span className="pl-3 text-slate-400"><Lock className="w-4 h-4" /></span>
-                    <input
-                      type="password"
-                      value={apiKeys[examConfig.aiProvider] || ''}
-                      onChange={(e) => updateApiKey(examConfig.aiProvider, e.target.value)}
-                      placeholder={examConfig.aiProvider === 'llama' ? '✓ Default Groq key pre-loaded — or paste your own to override' : `Paste your ${examConfig.aiProvider} API key here...`}
-                      className="w-full p-3 outline-none text-slate-700 bg-transparent font-mono text-sm"
-                    />
-                  </div>
+                  <form onSubmit={e => e.preventDefault()}>
+                    <div className={`flex items-center border rounded focus-within:ring-1 transition-all overflow-hidden ${examConfig.aiProvider === 'llama' && !apiKeys['llama'] ? 'bg-green-50 border-green-300 focus-within:border-green-500 focus-within:ring-green-300' : 'bg-white border-slate-300 focus-within:border-pink-500 focus-within:ring-pink-500'}`}>
+                      <span className="pl-3 text-slate-400"><Lock className="w-4 h-4" /></span>
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        value={apiKeys[examConfig.aiProvider] || ''}
+                        onChange={(e) => updateApiKey(examConfig.aiProvider, e.target.value)}
+                        placeholder={examConfig.aiProvider === 'llama' ? '✓ Default Groq key pre-loaded — or paste your own to override' : `Paste your ${examConfig.aiProvider} API key here...`}
+                        className="w-full p-3 outline-none text-slate-700 bg-transparent font-mono text-sm"
+                      />
+                    </div>
+                  </form>
                   {examConfig.aiProvider === 'llama' && !apiKeys['llama'] ? (
                     <p className="text-xs text-green-700 mt-2 flex items-center font-medium bg-green-50 p-2 border border-green-200 rounded leading-relaxed">
                       <CheckCircle className="w-4 h-4 mr-1.5 flex-shrink-0" /> A shared Groq key is pre-configured. You can start the exam immediately, or paste your own key for higher rate limits and quality validation.

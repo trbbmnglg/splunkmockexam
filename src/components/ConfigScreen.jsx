@@ -1,4 +1,4 @@
-import { Settings, X, ChevronRight, ListChecks, Clock, BookOpen, Cpu, Key, Lock, CheckCircle, ShieldCheck, Globe, Zap, RotateCcw, ExternalLink, Target, GraduationCap } from 'lucide-react';
+import { Settings, X, ChevronRight, ListChecks, Clock, BookOpen, Cpu, Key, Lock, CheckCircle, ShieldCheck, Globe, Zap, RotateCcw, ExternalLink, Target, GraduationCap, Focus } from 'lucide-react';
 import { TOPICS, EXAM_BLUEPRINTS, API_KEY_URLS, CURRENT_YEAR, YEAR_RANGE } from '../utils/constants';
 import { DEFAULT_GROQ_KEY } from '../utils/api';
 import { computeExamReadiness } from '../utils/agentAdaptive';
@@ -154,6 +154,32 @@ export default function ConfigScreen({
           </label>
         </div>
 
+        {/* Focus Mode */}
+        <div>
+          <h3 className="text-lg font-bold text-slate-800 mb-3 flex items-center">
+            <Focus className="w-5 h-5 mr-2 text-slate-500" /> Focus Mode
+          </h3>
+          <label className="flex items-center cursor-pointer p-4 border-2 border-slate-100 hover:border-slate-300 transition-colors bg-white rounded-lg">
+            <div className="relative">
+              <input type="checkbox" className="sr-only" checked={!!examConfig.focusMode}
+                onChange={(e) => setExamConfig(prev => ({ ...prev, focusMode: e.target.checked }))} />
+              <div className={`block w-14 h-8 transition-colors rounded-full ${examConfig.focusMode ? 'bg-indigo-600' : 'bg-slate-300'}`} />
+              <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${examConfig.focusMode ? 'transform translate-x-6' : ''}`} />
+            </div>
+            <div className="ml-4 flex-grow">
+              <div className="font-semibold text-slate-800 flex items-center gap-2">
+                {examConfig.focusMode ? 'Focus Mode On' : 'Focus Mode Off'}
+                {examConfig.focusMode && (
+                  <span className="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Active</span>
+                )}
+              </div>
+              <div className="text-sm text-slate-500 mt-0.5 leading-relaxed">
+                Hides the nav and dims everything outside the question card. Exit with the <kbd className="text-xs bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5 font-mono">Esc</kbd> key or the Exit Focus button.
+              </div>
+            </div>
+          </label>
+        </div>
+
         {/* Topic Coverage */}
         <div>
           <div className="flex justify-between items-end mb-3">
@@ -168,7 +194,6 @@ export default function ConfigScreen({
           </div>
           <p className="text-sm text-slate-500 mb-4 leading-relaxed">If no topics are selected, the exam will cover all topics randomly.</p>
 
-          {/* ── Topic list — improved density and readability ── */}
           <div className="grid sm:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto p-1 pr-2">
             {TOPICS[examType].map((topic, idx) => {
               const isSelected     = examConfig.selectedTopics.includes(topic);
@@ -191,7 +216,6 @@ export default function ConfigScreen({
                         : 'bg-white border-slate-200 hover:border-pink-300'
                   }`}
                 >
-                  {/* Checkbox */}
                   <div className={`mt-0.5 flex-shrink-0 w-5 h-5 border rounded flex items-center justify-center transition-colors ${
                     isGraduated && isSelected ? 'bg-emerald-500 border-emerald-500' :
                     isSelected                ? 'bg-pink-500 border-pink-500'       :
@@ -203,7 +227,6 @@ export default function ConfigScreen({
                     )}
                   </div>
 
-                  {/* Content */}
                   <div className="flex-grow min-w-0">
                     <div className="flex items-center gap-1.5 mb-1">
                       {isGraduated && <GraduationCap className="w-3 h-3 text-emerald-500 flex-shrink-0" />}

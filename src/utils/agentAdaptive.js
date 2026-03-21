@@ -1,28 +1,15 @@
 /**
  * agentAdaptive.js — Layer 3: Adaptive Difficulty Agent
  *
- * Rolling trend detection (v2):
- *   - D1 stores score_history (last 7 session scores) per topic.
- *   - computeRollingTrend() uses half-split average comparison.
- *
- * Exam-readiness score (v3):
- *   - computeExamReadiness() returns a 0-100 weighted score against blueprint.
- *   - Graduated topics show 100% accuracy in the readiness breakdown.
- *
- * Topic confidence graduation (v4):
- *   - A topic is graduated when the last 4 consecutive sessions all score ≥ 80%.
- *   - Server computes and stores graduated_at in D1.
- *   - buildAdaptiveContext() gives graduated topics a floor of 1 question
- *     instead of adaptive weighting — still covered, no longer over-weighted.
- *   - Un-graduation is automatic: if latest score drops below threshold,
- *     graduated_at is cleared server-side and the topic re-enters weighting.
- *
- * Cross-session duplicate detection (v5):
- *   - saveSeenConcepts() hashes question stems and saves to D1 after each exam.
- *   - getRecentSeenConcepts() fetches the last 50 concept hints for prompt injection.
- *   - buildAgenticPrompt in App.jsx uses these to tell the LLM which concepts
- *     to avoid re-generating.
+ * Changes in this version:
+ *   - All D1 writes now check isTrackingEnabled() first.
+ *     If tracking is off, writes are silently skipped.
+ *     Reads (loadProfile, getCommunityStats, getWrongAnswerBank,
+ *     getRecentSeenConcepts) still work — users can always access
+ *     their existing data even with tracking off.
  */
+
+import { isTrackingEnabled } from './privacyToken.js';
 
 const LOCAL_KEY              = 'splunkAdaptiveProfile';
 const USER_ID_KEY            = 'splunkUserId';
@@ -69,7 +56,7 @@ const computeRollingTrend = (scoreHistory, lastScore, prevScore) => {
   return 'new';
 };
 
-// ─── Client-side graduation check (mirrors server logic) ─────────────────────
+// ─── Client-side graduation check ────────────────────────────────────────────
 const computeGraduatedAt = (scoreHistory, existingGraduatedAt, now) => {
   if (!Array.isArray(scoreHistory) || scoreHistory.length < GRADUATION_WINDOW) return null;
   const latestScore = scoreHistory[scoreHistory.length - 1];
@@ -80,7 +67,7 @@ const computeGraduatedAt = (scoreHistory, existingGraduatedAt, now) => {
   return null;
 };
 
-// ─── Append score to local history, capped at window size ─────────────────────
+// ─── Append score to local history ───────────────────────────────────────────
 const appendToHistory = (existingHistory, newScore) => {
   const history = Array.isArray(existingHistory) ? [...existingHistory] : [];
   history.push(newScore);
@@ -108,6 +95,7 @@ const saveLocalProfile = (profile) => {
 
 export const clearProfile = (examType) => {
   const userId = getUserId();
+  // Only send D1 delete if tracking was enabled (data may exist)
   fetch(`${BASE_URL}/profile`, {
     method:  'DELETE',
     headers: { 'Content-Type': 'application/json' },
@@ -120,6 +108,7 @@ export const clearProfile = (examType) => {
 };
 
 // ─── Load profile — D1 first, localStorage fallback ──────────────────────────
+// Always available regardless of tracking setting (read, not write)
 export const loadProfile = async (examType) => {
   const userId = getUserId();
   try {
@@ -159,7 +148,7 @@ export const loadProfile = async (examType) => {
   return examProfile;
 };
 
-// ─── Compute per-topic validation failure rates from validationLog ────────────
+// ─── Compute per-topic validation failure rates ───────────────────────────────
 const computeTopicValidationFailures = (validationLog, questions) => {
   if (!validationLog || validationLog.length === 0) return {};
   const firstCycle = validationLog[0];
@@ -212,32 +201,36 @@ export const updateProfile = async (examType, questions, userAnswers, validation
     validationFailureRate: topicValidationFailures[topic] ?? 0,
   }));
 
-  // D1 write (non-blocking)
-  fetch(`${BASE_URL}/profile`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ userId, examType, sessionResults, overallFailureRate })
-  }).catch(err => console.warn('[Adaptive] D1 write failed:', err.message));
-
-  // Wrong answers write (non-blocking)
-  const wrongAnswers = questions
-    .map((q, idx) => ({ q, idx }))
-    .filter(({ q, idx }) => userAnswers[idx] !== q.correctIndex)
-    .map(({ q }) => ({
-      topic:         q.topic || 'General',
-      question:      q.question,
-      correctAnswer: q.options[q.correctIndex],
-    }));
-
-  if (wrongAnswers.length > 0) {
-    fetch(`${BASE_URL}/wrong-answers`, {
+  // ── D1 write — only if tracking enabled ──────────────────────────────────
+  if (isTrackingEnabled()) {
+    fetch(`${BASE_URL}/profile`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ userId, examType, wrongAnswers })
-    }).catch(err => console.warn('[Adaptive] Wrong answers write failed:', err.message));
+      body:    JSON.stringify({ userId, examType, sessionResults, overallFailureRate })
+    }).catch(err => console.warn('[Adaptive] D1 write failed:', err.message));
+
+    // Wrong answers write
+    const wrongAnswers = questions
+      .map((q, idx) => ({ q, idx }))
+      .filter(({ q, idx }) => userAnswers[idx] !== q.correctIndex)
+      .map(({ q }) => ({
+        topic:         q.topic || 'General',
+        question:      q.question,
+        correctAnswer: q.options[q.correctIndex],
+      }));
+
+    if (wrongAnswers.length > 0) {
+      fetch(`${BASE_URL}/wrong-answers`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ userId, examType, wrongAnswers })
+      }).catch(err => console.warn('[Adaptive] Wrong answers write failed:', err.message));
+    }
+  } else {
+    console.info('[Adaptive] Tracking disabled — skipping D1 profile + wrong answers write');
   }
 
-  // localStorage write
+  // localStorage write always happens (local profile for readiness/UI)
   const local = loadLocalProfile();
   if (!local[examType]) local[examType] = { sessions: 0, lastUpdated: null, topics: {} };
   const examProfile       = local[examType];
@@ -346,13 +339,8 @@ export const computeExamReadiness = (examType, blueprintTopics) => {
   const graduatedCount = breakdown.filter(t => t.graduated).length;
 
   return {
-    score,
-    label,
-    labelColor,
-    labelBg,
-    coveredPct,
-    breakdown,
-    graduatedCount,
+    score, label, labelColor, labelBg,
+    coveredPct, breakdown, graduatedCount,
     sessions: examProfile?.sessions || 0,
   };
 };
@@ -394,8 +382,8 @@ export const buildAdaptiveContext = (examType, numQuestions, blueprintTopics) =>
 
   const graduatedAllocation = graduatedTopics.length;
   const remainingQuestions  = Math.max(1, numQuestions - graduatedAllocation);
+  const baseWeight          = remainingQuestions / Math.max(activeTopics.length, 1);
 
-  const baseWeight   = remainingQuestions / Math.max(activeTopics.length, 1);
   const distribution = [
     ...activeTopics.map(t => {
       let count;
@@ -472,7 +460,7 @@ For mastered/graduated topics (1 question each):
 ${validationWarning}`,
     adaptiveSummary: {
       sessions:       examProfile.sessions,
-      weakTopics:     weakTopics.map(t  => ({ name: t.name,  errorRate: t.errorRate, trend: t.trend, scoreHistory: t.scoreHistory })),
+      weakTopics:     weakTopics.map(t  => ({ name: t.name, errorRate: t.errorRate, trend: t.trend, scoreHistory: t.scoreHistory })),
       strongTopics:   strongTopics.map(t => ({ name: t.name, errorRate: t.errorRate, trend: t.trend, scoreHistory: t.scoreHistory })),
       graduatedTopics: graduatedTopics.map(t => ({ name: t.name, graduatedAt: t.graduatedAt })),
       highValidationFailureTopics: highValidationFailureTopics.map(t => ({
@@ -530,8 +518,6 @@ export const clearReviewedAnswers = (examType, questionHashes) => {
 };
 
 // ─── Cross-session duplicate detection ───────────────────────────────────────
-
-// Simple hash of a question stem — same algorithm as wrongAnswers.js
 function hashConcept(str) {
   let hash = 0;
   const s = (str || '').slice(0, 200);
@@ -543,8 +529,13 @@ function hashConcept(str) {
   return Math.abs(hash).toString(36);
 }
 
-// Called in finishExam — saves all question stems from this session
 export const saveSeenConcepts = (examType, questions) => {
+  // Only write to D1 if tracking enabled
+  if (!isTrackingEnabled()) {
+    console.info('[Adaptive] Tracking disabled — skipping seen concepts write');
+    return;
+  }
+
   const userId = getUserId();
   if (!questions || questions.length === 0) return;
 
@@ -561,7 +552,6 @@ export const saveSeenConcepts = (examType, questions) => {
   }).catch(err => console.warn('[Adaptive] saveSeenConcepts failed:', err.message));
 };
 
-// Called in handleStartExam — fetches recent concept hints for prompt injection
 export const getRecentSeenConcepts = async (examType) => {
   const userId = getUserId();
   try {
@@ -573,6 +563,6 @@ export const getRecentSeenConcepts = async (examType) => {
       const data = await res.json();
       return data.concepts || [];
     }
-  } catch { /* non-fatal — missing seen concepts just means no dedup this session */ }
+  } catch { /* non-fatal */ }
   return [];
 };

@@ -118,7 +118,7 @@ function randomizeQuestion(q) {
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-export function useExamSession({ examType, examConfig, apiKeys, buildAgenticPrompt, setUsageInfo }) {
+export function useExamSession({ examType, examConfig, apiKeys, buildAgenticPrompt }) {
   // ── Session state ──────────────────────────────────────────────────────────
   const [gameState,            setGameState]            = useState('menu');
   const [questions,            setQuestions]            = useState([]);

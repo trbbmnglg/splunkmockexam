@@ -8,27 +8,29 @@ import { useExamSession }     from './hooks/useExamSession';
 import { useAdaptiveProfile } from './hooks/useAdaptiveProfile';
 import { useKeyboard }        from './hooks/useKeyboard';
 
-import ConsentModal  from './components/ConsentModal';
-import FeedbackModal from './components/FeedbackModal';
-import AppFooter     from './components/AppFooter';
-import MenuScreen    from './components/MenuScreen';
-import LoadingScreen from './components/LoadingScreen';
-import ErrorModal    from './components/ErrorModal';
-import ConfigScreen  from './components/ConfigScreen';
-import ExamScreen    from './components/ExamScreen';
-import ResultsScreen from './components/ResultsScreen';
+import ConsentModal    from './components/ConsentModal';
+import FeedbackModal   from './components/FeedbackModal';
+import AppFooter       from './components/AppFooter';
+import AppInfoDrawer   from './components/AppInfoDrawer';
+import MenuScreen      from './components/MenuScreen';
+import LoadingScreen   from './components/LoadingScreen';
+import ErrorModal      from './components/ErrorModal';
+import ConfigScreen    from './components/ConfigScreen';
+import ExamScreen      from './components/ExamScreen';
+import ResultsScreen   from './components/ResultsScreen';
 
 export default function App() {
-  // ── Consent ────────────────────────────────────────────────────────────────
+  // ── Consent ───────────────────────────────────────────────────────────────
   const [hasConsented, setHasConsented] = useState(
     () => localStorage.getItem('splunkExamConsent') === 'true'
   );
 
-  // ── Top-level UI ───────────────────────────────────────────────────────────
+  // ── Top-level UI ──────────────────────────────────────────────────────────
   const [viewMode,          setViewMode]          = useState('grid');
   const [examType,          setExamType]          = useState(null);
   const [profileVersion,    setProfileVersion]    = useState(0);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [showInfoDrawer,    setShowInfoDrawer]    = useState(false);
   const [showAdvanced,      setShowAdvanced]      = useState(false);
   const [userEditedPrompt,  setUserEditedPrompt]  = useState(false);
 
@@ -56,7 +58,7 @@ export default function App() {
     });
   }, []);
 
-  // ── buildAgenticPrompt ─────────────────────────────────────────────────────
+  // ── buildAgenticPrompt ────────────────────────────────────────────────────
   const buildAgenticPrompt = useCallback((type, num, topics, provider, passages = [], seenConcepts = []) => {
     if (!type) return '';
     const bp             = EXAM_BLUEPRINTS[type];
@@ -175,7 +177,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     setCurrentQuestionIndex: session.setCurrentQuestionIndex,
   });
 
-  // ── handleSelectExamType ───────────────────────────────────────────────────
+  // ── handleSelectExamType ──────────────────────────────────────────────────
   const handleSelectExamType = useCallback(async (selectedType) => {
     setExamType(selectedType);
     setUserEditedPrompt(false);
@@ -211,7 +213,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-pink-200 selection:text-pink-900 flex flex-col">
 
@@ -221,9 +223,19 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
         <FeedbackModal onClose={() => setShowFeedbackModal(false)} apiKey={apiKeys['llama']} />
       )}
 
+      <AppInfoDrawer open={showInfoDrawer} onClose={() => setShowInfoDrawer(false)} />
+
       <nav className="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto flex items-center font-bold text-xl">
-          <span className="text-pink-500 mr-1">&gt;</span> Splunk <span className="font-light ml-1 text-slate-300">MockTest</span>
+        <div className="max-w-6xl mx-auto flex items-center justify-between font-bold text-xl">
+          <div className="flex items-center">
+            <span className="text-pink-500 mr-1">&gt;</span> Splunk <span className="font-light ml-1 text-slate-300">MockTest</span>
+          </div>
+          <button
+            onClick={() => setShowInfoDrawer(true)}
+            className="text-xs font-semibold text-slate-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-700 border border-slate-700 hover:border-slate-500"
+          >
+            About this tool
+          </button>
         </div>
       </nav>
 

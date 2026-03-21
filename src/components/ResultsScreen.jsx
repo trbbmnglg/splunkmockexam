@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
-  CheckCircle, XCircle, AlertTriangle, BookOpen, Award, RotateCcw,
-  ShieldCheck, ExternalLink, Zap, BarChart2, RefreshCw, BadgeCheck,
+  CheckCircle, XCircle, AlertTriangle, BookOpen, RotateCcw,
+  ExternalLink, Zap, BarChart2, RefreshCw, BadgeCheck,
   CalendarCheck, FileText, Shield, Target, ChevronDown, ChevronUp,
   GraduationCap, QrCode,
 } from 'lucide-react';
@@ -24,9 +24,9 @@ function simpleHash(str) {
 // ─── Tab bar ──────────────────────────────────────────────────────────────────
 function TabBar({ active, onChange, wrongCount }) {
   const tabs = [
-    { id: 'results',  label: 'Results' },
-    { id: 'actions',  label: 'Actions' },
-    { id: 'review',   label: 'Review', badge: wrongCount > 0 ? wrongCount : null },
+    { id: 'results', label: 'Results' },
+    { id: 'review',  label: 'Review', badge: wrongCount > 0 ? wrongCount : null },
+    { id: 'actions', label: 'Actions' },
   ];
   return (
     <div className="flex border-b border-slate-200 bg-white rounded-t-xl overflow-hidden">
@@ -70,7 +70,7 @@ function ReadinessCard({ examType, bp }) {
   const unAttempted = readiness.breakdown.filter(t => !t.attempted);
 
   return (
-    <div className={`bg-white rounded-xl shadow-sm border p-5 ${readiness.labelBg}`}>
+    <div className={`rounded-xl border p-5 ${readiness.labelBg}`}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-full bg-white/80 flex items-center justify-center shadow-sm">
@@ -168,8 +168,103 @@ function ReadinessCard({ examType, bp }) {
   );
 }
 
+// ─── Learning Profile Card ────────────────────────────────────────────────────
+function LearningProfileCard({ examType, profileVersion, setProfileVersion }) {
+  const profile         = getProfileSummary(examType);
+  if (!profile || profile.sessions < 1) return null;
+
+  const graduatedTopics = profile.topics.filter(t => t.graduatedAt);
+  const topTopics       = profile.topics.slice(0, 5);
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+            <BarChart2 className="w-4 h-4 text-purple-500" /> Your Learning Profile
+          </h4>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {profile.sessions} session{profile.sessions !== 1 ? 's' : ''} tracked
+            {graduatedTopics.length > 0 && (
+              <span className="ml-1.5 text-emerald-600 font-semibold">
+                · {graduatedTopics.length} mastered 🎓
+              </span>
+            )}
+          </p>
+        </div>
+        <button
+          onClick={() => { clearProfile(examType); setProfileVersion(v => v + 1); }}
+          className="text-xs text-slate-400 hover:text-red-500 transition-colors"
+          title="Reset adaptive profile"
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <div className="mb-3 bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex items-center gap-2">
+        <Shield className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+        <div className="min-w-0">
+          <p className="text-xs text-slate-500 leading-none mb-0.5">Anonymous ID — use on any device</p>
+          <p className="text-xs font-mono text-slate-700 truncate">{getUserId()}</p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {topTopics.map((t, i) => {
+          const isGrad = !!(t.graduatedAt);
+          return (
+            <div key={i}>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs text-slate-600 truncate pr-2 max-w-[55%] flex items-center gap-1">
+                  {isGrad && <GraduationCap className="w-3 h-3 text-emerald-500 flex-shrink-0" />}
+                  {t.name}
+                </span>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {isGrad ? (
+                    <span className="text-xs font-bold text-emerald-600">Mastered</span>
+                  ) : (
+                    <span className={`text-xs font-bold ${t.errorRate > 50 ? 'text-red-600' : t.errorRate > 25 ? 'text-orange-500' : 'text-green-600'}`}>
+                      {100 - t.errorRate}%
+                    </span>
+                  )}
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                    isGrad                  ? 'bg-emerald-100 text-emerald-700' :
+                    t.trend === 'improving' ? 'bg-green-100 text-green-700'    :
+                    t.trend === 'declining' ? 'bg-red-100 text-red-700'        :
+                    t.trend === 'new'       ? 'bg-blue-100 text-blue-700'      :
+                                              'bg-slate-100 text-slate-500'
+                  }`}>
+                    {isGrad ? '🎓' : t.trend}
+                  </span>
+                </div>
+              </div>
+              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    isGrad           ? 'bg-emerald-400' :
+                    t.errorRate > 50 ? 'bg-red-400'     :
+                    t.errorRate > 25 ? 'bg-orange-400'  :
+                                       'bg-green-400'
+                  }`}
+                  style={{ width: isGrad ? '100%' : `${100 - t.errorRate}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {profile.topics.length > 5 && (
+        <p className="text-xs text-slate-400 mt-3 text-center">
+          +{profile.topics.length - 5} more topics tracked
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Tab 1: Results ───────────────────────────────────────────────────────────
-function ResultsTab({ topicsToReview, examType, bp }) {
+function ResultsTab({ topicsToReview, examType, bp, profileVersion, setProfileVersion }) {
   return (
     <div className="p-6 space-y-6">
 
@@ -207,22 +302,67 @@ function ResultsTab({ topicsToReview, examType, bp }) {
         )}
       </div>
 
-      {/* Readiness */}
+      {/* Exam Readiness */}
       <ReadinessCard examType={examType} bp={bp} />
+
+      {/* Learning Profile */}
+      <LearningProfileCard
+        examType={examType}
+        profileVersion={profileVersion}
+        setProfileVersion={setProfileVersion}
+      />
+
     </div>
   );
 }
 
-// ─── Tab 2: Actions ───────────────────────────────────────────────────────────
+// ─── Tab 2: Review ────────────────────────────────────────────────────────────
+function ReviewTab({ wrongAnswers, userAnswers, bp, groqKey, examType }) {
+  if (wrongAnswers.length === 0) {
+    return (
+      <div className="p-10 text-center">
+        <CheckCircle className="w-12 h-12 mx-auto text-green-400 mb-3" />
+        <p className="font-semibold text-slate-700">No wrong answers this session.</p>
+        <p className="text-slate-500 text-sm mt-1">Come back after your next exam.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="p-6 space-y-4">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm text-slate-500">
+          {wrongAnswers.length} missed question{wrongAnswers.length !== 1 ? 's' : ''} — click{' '}
+          <span className="font-semibold text-indigo-600">Why?</span> for an AI explanation
+        </p>
+        <div className="hidden sm:flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold px-3 py-1.5 rounded-lg flex-shrink-0 ml-3">
+          <Zap className="w-3.5 h-3.5" /> AI explanations
+        </div>
+      </div>
+      {wrongAnswers.map(({ q, idx }) => (
+        <WrongAnswerCard
+          key={idx}
+          questionIndex={idx}
+          question={q.question}
+          yourAnswer={q.options[userAnswers[idx]] ?? 'No answer selected'}
+          correctAnswer={q.options[q.correctIndex]}
+          allOptions={q.options}
+          topic={q.topic}
+          examType={examType}
+          blueprintLevel={bp?.level || 'Intermediate-Level'}
+          apiKey={groqKey}
+          docSource={q.docSource || ''}
+          timesMissed={q.times_missed || 1}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ─── Tab 3: Actions ───────────────────────────────────────────────────────────
 function ActionsTab({
   examType, bp, passed, wrongAnswers,
-  handleStartReview, onShowFeedback, onRetry,
-  setShowShareModal, profileVersion, setProfileVersion,
+  handleStartReview, onRetry, setShowShareModal,
 }) {
-  const profile         = getProfileSummary(examType);
-  const graduatedTopics = profile?.topics.filter(t => t.graduatedAt) || [];
-  const topTopics       = profile?.topics.slice(0, 5) || [];
-
   return (
     <div className="p-6 space-y-5">
 
@@ -278,7 +418,7 @@ function ActionsTab({
             <AlertTriangle className="w-8 h-8 mx-auto text-orange-400 mb-2" />
             <h4 className="font-bold text-slate-800 text-sm mb-1">Keep Studying</h4>
             <p className="text-slate-600 text-xs leading-relaxed">
-              Focus on the topics in the Results tab, especially those with multiple errors.
+              Check the Results tab for topics to focus on — especially those with multiple errors.
             </p>
           </div>
           {bp && (
@@ -313,144 +453,6 @@ function ActionsTab({
         </button>
       </div>
 
-      {/* Submit official result */}
-      <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 flex flex-col items-center text-center">
-        <h4 className="font-bold text-slate-800 text-sm mb-1">Help Validate Our AI</h4>
-        <p className="text-slate-500 text-xs mb-4 leading-relaxed">
-          Taken the official {examType} exam? Submit your score report to help improve question quality.
-        </p>
-        <button
-          onClick={onShowFeedback}
-          className="w-full flex items-center justify-center px-5 py-2.5 rounded-lg font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors border border-indigo-200 text-sm"
-        >
-          <Award className="w-4 h-4 mr-2" /> Submit Official Result
-        </button>
-      </div>
-
-      {/* Learning Profile */}
-      {profile && profile.sessions >= 1 && (
-        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                <BarChart2 className="w-4 h-4 text-purple-500" /> Your Learning Profile
-              </h4>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {profile.sessions} session{profile.sessions !== 1 ? 's' : ''} tracked
-                {graduatedTopics.length > 0 && (
-                  <span className="ml-1.5 text-emerald-600 font-semibold">
-                    · {graduatedTopics.length} mastered 🎓
-                  </span>
-                )}
-              </p>
-            </div>
-            <button
-              onClick={() => { clearProfile(examType); setProfileVersion(v => v + 1); }}
-              className="text-xs text-slate-400 hover:text-red-500 transition-colors"
-              title="Reset adaptive profile"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="mb-3 bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex items-center gap-2">
-            <Shield className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-            <div className="min-w-0">
-              <p className="text-xs text-slate-500 leading-none mb-0.5">Anonymous ID — use on any device</p>
-              <p className="text-xs font-mono text-slate-700 truncate">{getUserId()}</p>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            {topTopics.map((t, i) => {
-              const isGrad = !!(t.graduatedAt);
-              return (
-                <div key={i}>
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-xs text-slate-600 truncate pr-2 max-w-[55%] flex items-center gap-1">
-                      {isGrad && <GraduationCap className="w-3 h-3 text-emerald-500 flex-shrink-0" />}
-                      {t.name}
-                    </span>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {isGrad ? (
-                        <span className="text-xs font-bold text-emerald-600">Mastered</span>
-                      ) : (
-                        <span className={`text-xs font-bold ${t.errorRate > 50 ? 'text-red-600' : t.errorRate > 25 ? 'text-orange-500' : 'text-green-600'}`}>
-                          {100 - t.errorRate}%
-                        </span>
-                      )}
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                        isGrad                  ? 'bg-emerald-100 text-emerald-700' :
-                        t.trend === 'improving' ? 'bg-green-100 text-green-700'    :
-                        t.trend === 'declining' ? 'bg-red-100 text-red-700'        :
-                        t.trend === 'new'       ? 'bg-blue-100 text-blue-700'      :
-                                                  'bg-slate-100 text-slate-500'
-                      }`}>
-                        {isGrad ? '🎓' : t.trend}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        isGrad           ? 'bg-emerald-400' :
-                        t.errorRate > 50 ? 'bg-red-400'     :
-                        t.errorRate > 25 ? 'bg-orange-400'  :
-                                           'bg-green-400'
-                      }`}
-                      style={{ width: isGrad ? '100%' : `${100 - t.errorRate}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          {profile.topics.length > 5 && (
-            <p className="text-xs text-slate-400 mt-3 text-center">+{profile.topics.length - 5} more topics tracked</p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Tab 3: Review ────────────────────────────────────────────────────────────
-function ReviewTab({ wrongAnswers, userAnswers, bp, groqKey, examType }) {
-  if (wrongAnswers.length === 0) {
-    return (
-      <div className="p-8 text-center">
-        <CheckCircle className="w-12 h-12 mx-auto text-green-400 mb-3" />
-        <p className="font-semibold text-slate-700">No wrong answers this session.</p>
-        <p className="text-slate-500 text-sm mt-1">Come back after your next exam.</p>
-      </div>
-    );
-  }
-  return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-sm text-slate-500">
-          {wrongAnswers.length} missed question{wrongAnswers.length !== 1 ? 's' : ''} — click <span className="font-semibold text-indigo-600">Why?</span> for an AI explanation
-        </p>
-        <div className="hidden sm:flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold px-3 py-1.5 rounded-lg">
-          <Zap className="w-3.5 h-3.5" /> AI explanations
-        </div>
-      </div>
-      {wrongAnswers.map(({ q, idx }) => (
-        <WrongAnswerCard
-          key={idx}
-          questionIndex={idx}
-          question={q.question}
-          yourAnswer={q.options[userAnswers[idx]] ?? 'No answer selected'}
-          correctAnswer={q.options[q.correctIndex]}
-          allOptions={q.options}
-          topic={q.topic}
-          examType={examType}
-          blueprintLevel={bp?.level || 'Intermediate-Level'}
-          apiKey={groqKey}
-          docSource={q.docSource || ''}
-          timesMissed={q.times_missed || 1}
-        />
-      ))}
     </div>
   );
 }
@@ -474,9 +476,9 @@ export default function ResultsScreen({
   const bp      = EXAM_BLUEPRINTS[examType];
   const groqKey = apiKeys['llama'] || DEFAULT_GROQ_KEY;
 
-  const [activeTab,       setActiveTab]       = useState('results');
+  const [activeTab,         setActiveTab]         = useState('results');
   const [enrichedQuestions, setEnrichedQuestions] = useState(questions);
-  const [showShareModal,  setShowShareModal]  = useState(false);
+  const [showShareModal,    setShowShareModal]    = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -487,7 +489,7 @@ export default function ResultsScreen({
         const missedMap = {};
         for (const item of bankItems) missedMap[item.question_hash] = item.times_missed;
         const enriched = questions.map(q => {
-          const hash = simpleHash(q.question);
+          const hash        = simpleHash(q.question);
           const timesMissed = missedMap[hash];
           return timesMissed !== undefined ? { ...q, times_missed: timesMissed } : q;
         });
@@ -507,7 +509,6 @@ export default function ResultsScreen({
   return (
     <div className="max-w-3xl mx-auto w-full animate-fade-in space-y-6 pb-12">
 
-      {/* Share modal */}
       {showShareModal && (
         <ShareProfileModal onClose={() => setShowShareModal(false)} />
       )}
@@ -528,9 +529,7 @@ export default function ResultsScreen({
             <div className="text-4xl font-black">{score}%</div>
             <div className="text-xs font-medium uppercase tracking-wider mt-0.5 opacity-80">Session Score</div>
           </div>
-          <p className="text-base opacity-90">
-            {correct} of {total} questions correct
-          </p>
+          <p className="text-base opacity-90">{correct} of {total} questions correct</p>
         </div>
       </div>
 
@@ -547,19 +546,6 @@ export default function ResultsScreen({
             topicsToReview={topicsToReview}
             examType={examType}
             bp={bp}
-          />
-        )}
-
-        {activeTab === 'actions' && (
-          <ActionsTab
-            examType={examType}
-            bp={bp}
-            passed={passed}
-            wrongAnswers={wrongAnswers}
-            handleStartReview={handleStartReview}
-            onShowFeedback={onShowFeedback}
-            onRetry={onRetry}
-            setShowShareModal={setShowShareModal}
             profileVersion={profileVersion}
             setProfileVersion={setProfileVersion}
           />
@@ -572,6 +558,18 @@ export default function ResultsScreen({
             bp={bp}
             groqKey={groqKey}
             examType={examType}
+          />
+        )}
+
+        {activeTab === 'actions' && (
+          <ActionsTab
+            examType={examType}
+            bp={bp}
+            passed={passed}
+            wrongAnswers={wrongAnswers}
+            handleStartReview={handleStartReview}
+            onRetry={onRetry}
+            setShowShareModal={setShowShareModal}
           />
         )}
       </div>

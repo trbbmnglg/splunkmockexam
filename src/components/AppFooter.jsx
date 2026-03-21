@@ -5,7 +5,7 @@ import {
   CheckCircle, XCircle, AlertTriangle, Flag, Clock, Infinity,
   ListChecks, ExternalLink, Cpu, Key, Lock, CalendarCheck,
   GraduationCap, BadgeCheck, Flame, Server, Building, Briefcase,
-  LineChart, Target, Cloud, Filter, Link, Shield,
+  LineChart, Target, Cloud, Filter, Link, Shield, Database, Repeat,
 } from 'lucide-react';
 
 function SectionToggle({ open, onToggle, title, subtitle, accentColor }) {
@@ -45,7 +45,7 @@ export default function AppFooter({ gameState }) {
             open={featuresOpen}
             onToggle={() => setFeaturesOpen(o => !o)}
             title="Features &amp; Benefits"
-            subtitle="Everything built into this tool to maximize your exam readiness."
+            subtitle="All 16 agentic features built into this tool to maximize your exam readiness."
             accentColor="bg-pink-500"
           />
         </div>
@@ -67,7 +67,7 @@ export default function AppFooter({ gameState }) {
                 <div className="w-10 h-10 bg-teal-100 flex items-center justify-center rounded-lg flex-shrink-0"><BookOpen className="w-5 h-5 text-teal-600" /></div>
                 <div>
                   <h4 className="font-bold text-slate-800 mb-1">3-Step RAG Pipeline</h4>
-                  <p>A retrieval agent runs a 3-step pipeline before every exam: <strong>(1)</strong> embeds the query via <code className="text-xs bg-slate-100 px-1 rounded">bge-small-en-v1.5</code> and fetches up to 15 candidates from Cloudflare Vectorize (cosine ≥ 0.65); <strong>(2)</strong> re-ranks them with the Jina Reranker v2 for contextual precision; <strong>(3)</strong> injects the top 5 passages directly into the generation prompt. Falls back gracefully if Jina times out.</p>
+                  <p>A retrieval agent runs a 3-step pipeline before every exam: <strong>(1)</strong> embeds the query via <code className="text-xs bg-slate-100 px-1 rounded">bge-small-en-v1.5</code> and fetches up to 15 candidates from Cloudflare Vectorize (cosine ≥ 0.5); <strong>(2)</strong> re-ranks them with the Jina Reranker v3 for contextual precision with an 8s timeout; <strong>(3)</strong> injects the top 5 passages directly into the generation prompt. Falls back gracefully to Vectorize top-5 if Jina times out.</p>
                 </div>
               </div>
 
@@ -98,12 +98,30 @@ export default function AppFooter({ gameState }) {
                 </div>
               </div>
 
+              <div className="bg-white p-5 rounded-xl border-2 border-cyan-200 flex gap-4 relative overflow-hidden">
+                <div className="absolute top-0 right-0 text-xs font-bold text-cyan-600 bg-cyan-50 px-2 py-0.5 rounded-bl-lg border-l border-b border-cyan-200">Agentic · Per-session</div>
+                <div className="w-10 h-10 bg-cyan-100 flex items-center justify-center rounded-lg flex-shrink-0"><Repeat className="w-5 h-5 text-cyan-600" /></div>
+                <div>
+                  <h4 className="font-bold text-slate-800 mb-1">Cross-Session Duplicate Detection</h4>
+                  <p>After every exam, all question stems are hashed and saved to D1's <code className="text-xs bg-slate-100 px-1 rounded">seen_concepts</code> table (capped at 100 per cert). Before generation, the last 50 concept hints are fetched and injected into the prompt as hard exclusions — grouped by topic — so the AI cannot regenerate questions on concepts you've already seen. RAG and dedup fetches run in parallel, adding zero extra latency.</p>
+                </div>
+              </div>
+
               <div className="bg-white p-5 rounded-xl border-2 border-slate-200 flex gap-4 relative overflow-hidden">
                 <div className="absolute top-0 right-0 text-xs font-bold text-slate-500 bg-slate-50 px-2 py-0.5 rounded-bl-lg border-l border-b border-slate-200">Cross-layer</div>
                 <div className="w-10 h-10 bg-slate-100 flex items-center justify-center rounded-lg flex-shrink-0"><Zap className="w-5 h-5 text-slate-600" /></div>
                 <div>
                   <h4 className="font-bold text-slate-800 mb-1">L1 → L3 Quality Feedback Loop</h4>
                   <p>Validation failure rates from Layer 1 are written into the adaptive profile in Layer 3. Topics that historically cause the AI to produce bad questions receive an explicit quality warning injected into every subsequent generation prompt — the system learns its own blind spots over time.</p>
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-xl border-2 border-violet-200 flex gap-4 relative overflow-hidden">
+                <div className="absolute top-0 right-0 text-xs font-bold text-violet-600 bg-violet-50 px-2 py-0.5 rounded-bl-lg border-l border-b border-violet-200">Observability</div>
+                <div className="w-10 h-10 bg-violet-100 flex items-center justify-center rounded-lg flex-shrink-0"><Database className="w-5 h-5 text-violet-600" /></div>
+                <div>
+                  <h4 className="font-bold text-slate-800 mb-1">Agent Trace Persistence</h4>
+                  <p>Every generation run writes a full trace to D1's <code className="text-xs bg-slate-100 px-1 rounded">generation_traces</code> table — provider, model, prompt and completion token counts, latency, parse strategy, retry count, validation cycles and failures, and RAG passage count. This creates a longitudinal record for diagnosing quality regressions and tracking cost trends over time.</p>
                 </div>
               </div>
 
@@ -168,7 +186,7 @@ export default function AppFooter({ gameState }) {
             open={agenticOpen}
             onToggle={() => setAgenticOpen(o => !o)}
             title="Agentic AI Architecture"
-            subtitle="How the five agents and three layers collaborate on every exam generation."
+            subtitle="How the six agents and three layers collaborate on every exam generation."
             accentColor="bg-purple-500"
           />
         </div>
@@ -194,26 +212,27 @@ export default function AppFooter({ gameState }) {
 
                 <div className="flex gap-4 items-center ml-5">
                   <div className="w-2 h-2 rounded-full bg-teal-400 z-10" />
-                  <div className="text-xs text-teal-600 font-semibold">Layer 2 — 3-step RAG retrieval</div>
+                  <div className="text-xs text-teal-600 font-semibold">Layer 2 — 3-step RAG retrieval + cross-session dedup fetch (parallel)</div>
                 </div>
 
-                {/* Layer 2 RAG */}
+                {/* Layer 2 RAG + Dedup */}
                 <div className="flex gap-4 items-start">
                   <div className="w-12 h-12 rounded-full bg-teal-500 flex items-center justify-center flex-shrink-0 z-10 shadow-lg">
                     <BookOpen className="w-5 h-5 text-white" />
                   </div>
                   <div className="flex-grow bg-white border-2 border-teal-200 rounded-xl p-4 shadow-sm relative overflow-hidden">
-                    <div className="absolute top-0 right-0 text-xs font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-bl-lg border-l border-b border-teal-200">Layer 2 · RAG Agent</div>
+                    <div className="absolute top-0 right-0 text-xs font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-bl-lg border-l border-b border-teal-200">Layer 2 · RAG Agent + Dedup</div>
                     <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <h4 className="font-bold text-slate-800 text-sm">Retrieve → Rerank → Inject</h4>
-                      <span className="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded-full font-mono border border-teal-200">Vectorize + Jina + Workers AI</span>
+                      <h4 className="font-bold text-slate-800 text-sm">Retrieve → Rerank → Inject + Load Seen Concepts</h4>
+                      <span className="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded-full font-mono border border-teal-200">Vectorize + Jina v3 + Workers AI + D1</span>
                     </div>
-                    <p className="text-xs text-slate-500"><strong>Step 1:</strong> Embeds the exam query via <code className="bg-slate-100 px-1 rounded">bge-small-en-v1.5</code>, fetches up to 15 candidates from <code className="bg-slate-100 px-1 rounded">splunk-docs-index</code> (cosine ≥ 0.65, cert-filtered first with unfiltered fallback). <strong>Step 2:</strong> Jina Reranker v2 re-scores all candidates for contextual relevance with a 5s timeout — falls back to top-5 by Vectorize score if Jina fails. <strong>Step 3:</strong> The 5 highest-ranked passages are injected into the generation prompt as reference documentation.</p>
+                    <p className="text-xs text-slate-500"><strong>RAG Step 1:</strong> Embeds the exam query via <code className="bg-slate-100 px-1 rounded">bge-small-en-v1.5</code>, fetches up to 15 candidates from <code className="bg-slate-100 px-1 rounded">splunk-docs-index</code> (cosine ≥ 0.5, cert-filtered first with unfiltered fallback). <strong>Step 2:</strong> Jina Reranker v3 re-scores all candidates with an 8s timeout — falls back to top-5 by Vectorize score if Jina fails. <strong>Step 3:</strong> The 5 highest-ranked passages are injected into the generation prompt. <strong>Dedup (parallel):</strong> The last 50 seen concept hints are fetched from D1's <code className="bg-slate-100 px-1 rounded">seen_concepts</code> table simultaneously — zero added latency. Both signals are merged into the final prompt.</p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">384-dim embeddings</span>
-                      <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">cosine ≥ 0.65</span>
-                      <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">Jina reranker v2</span>
+                      <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">cosine ≥ 0.5</span>
+                      <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">Jina reranker v3</span>
                       <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">top-5 injected</span>
+                      <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">50 seen concepts injected</span>
                       <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">graceful fallback</span>
                     </div>
                   </div>
@@ -221,7 +240,7 @@ export default function AppFooter({ gameState }) {
 
                 <div className="flex gap-4 items-center ml-5">
                   <div className="w-2 h-2 rounded-full bg-pink-400 z-10" />
-                  <div className="text-xs text-pink-600 font-semibold">doc passages + adaptive context injected into prompt → LLM generates</div>
+                  <div className="text-xs text-pink-600 font-semibold">doc passages + seen concepts + adaptive context injected into prompt → LLM generates</div>
                 </div>
 
                 {/* Generation */}
@@ -235,10 +254,11 @@ export default function AppFooter({ gameState }) {
                       <h4 className="font-bold text-slate-800 text-sm">AI Question Generator</h4>
                       <span className="text-xs bg-pink-50 text-pink-700 px-2 py-0.5 rounded-full font-mono border border-pink-200">Groq / Gemini / Perplexity / Qwen</span>
                     </div>
-                    <p className="text-xs text-slate-500">Generates questions grounded in RAG passages with blueprint topic distribution, adaptive weighting, difficulty calibration, and strict topic boundary rules. Groq and Qwen use <code className="bg-slate-100 px-1 rounded">response_format: json_object</code> for schema enforcement. A <code className="bg-slate-100 px-1 rounded">safeJsonParse</code> layer sanitizes bare control characters before parsing. Post-generation, <code className="bg-slate-100 px-1 rounded">filterDocSources</code> strips any <code className="bg-slate-100 px-1 rounded">docSource</code> URL not present in the injected passages to prevent hallucinated links.</p>
+                    <p className="text-xs text-slate-500">Generates questions grounded in RAG passages with blueprint topic distribution, adaptive weighting, difficulty calibration, strict topic boundary rules, and cross-session duplicate exclusions. Groq and Qwen use <code className="bg-slate-100 px-1 rounded">response_format: json_object</code> for schema enforcement. A <code className="bg-slate-100 px-1 rounded">safeJsonParse</code> layer sanitizes bare control characters before parsing. Post-generation, <code className="bg-slate-100 px-1 rounded">filterDocSources</code> strips any <code className="bg-slate-100 px-1 rounded">docSource</code> URL not present in the injected passages to prevent hallucinated links.</p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">JSON schema enforced</span>
                       <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">adaptive prompt weighting</span>
+                      <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">dedup exclusions injected</span>
                       <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">hallucinated URL filter</span>
                       <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">token-scaled output</span>
                     </div>
@@ -275,7 +295,7 @@ export default function AppFooter({ gameState }) {
 
                 <div className="flex gap-4 items-center ml-5">
                   <div className="w-2 h-2 rounded-full bg-orange-400 z-10" />
-                  <div className="text-xs text-orange-600 font-semibold">exam runs → results + Layer 3 profile update</div>
+                  <div className="text-xs text-orange-600 font-semibold">exam runs → results + Layer 3 profile update + seen concepts saved + trace persisted</div>
                 </div>
 
                 {/* Layer 3 Adaptive */}
@@ -284,14 +304,14 @@ export default function AppFooter({ gameState }) {
                     <BarChart2 className="w-5 h-5 text-white" />
                   </div>
                   <div className="flex-grow bg-white border-2 border-orange-200 rounded-xl p-4 shadow-sm relative overflow-hidden">
-                    <div className="absolute top-0 right-0 text-xs font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded-bl-lg border-l border-b border-orange-200">Layer 3 · Adaptive</div>
+                    <div className="absolute top-0 right-0 text-xs font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded-bl-lg border-l border-b border-orange-200">Layer 3 · Adaptive + Post-exam writes</div>
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <h4 className="font-bold text-slate-800 text-sm">Adaptive Learning Agent</h4>
                       <span className="text-xs bg-orange-50 text-orange-700 px-2 py-0.5 rounded-full font-mono border border-orange-200">Cloudflare D1</span>
                     </div>
-                    <p className="text-xs text-slate-500">After each session, writes per-topic error rates, trend signals, and Layer 1 validation failure rates to D1. Also writes anonymized stats to <code className="bg-slate-100 px-1 rounded">community_stats</code> and persists missed questions to <code className="bg-slate-100 px-1 rounded">wrong_answers</code> with spaced repetition scheduling. On the next exam, <code className="bg-slate-100 px-1 rounded">buildAdaptiveContext</code> reads the profile and overrides blueprint question counts — topics with &gt;60% error rate get 1.8× allocation. Topics with high Layer 1 failure rates inject a generation quality warning into the prompt.</p>
+                    <p className="text-xs text-slate-500">After each session, writes per-topic error rates, trend signals, and Layer 1 validation failure rates to D1. Also writes anonymized stats to <code className="bg-slate-100 px-1 rounded">community_stats</code>, persists missed questions to <code className="bg-slate-100 px-1 rounded">wrong_answers</code> with spaced repetition scheduling, saves all question stems to <code className="bg-slate-100 px-1 rounded">seen_concepts</code> for future dedup, and writes a full generation trace to <code className="bg-slate-100 px-1 rounded">generation_traces</code>. On the next exam, <code className="bg-slate-100 px-1 rounded">buildAdaptiveContext</code> reads the profile and overrides blueprint question counts — topics with &gt;60% error rate get 1.8× allocation. Topics with high Layer 1 failure rates inject a generation quality warning into the prompt.</p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      {['error rate + trend tracking', 'L1 validation failure rates', 'community stats (anonymized)', 'spaced repetition scheduling', 'anonymous cross-device ID'].map(tag => (
+                      {['error rate + trend tracking', 'L1 validation failure rates', 'community stats (anonymized)', 'spaced repetition scheduling', 'seen concepts (dedup)', 'generation trace (observability)'].map(tag => (
                         <span key={tag} className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{tag}</span>
                       ))}
                     </div>
@@ -314,7 +334,7 @@ export default function AppFooter({ gameState }) {
                       <h4 className="font-bold text-slate-800 text-sm">RAG-Grounded Depth-Escalating Explainer</h4>
                       <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-mono border border-indigo-200">Groq Llama 3.3 + Vectorize</span>
                     </div>
-                    <p className="text-xs text-slate-500">Activates lazily when a user clicks <span className="font-semibold text-indigo-600">Why?</span> on a wrong answer. First runs its own independent RAG retrieval for that specific topic via <code className="bg-slate-100 px-1 rounded">/api/retrieve</code>, then injects the passage into the explanation prompt. Reads <code className="bg-slate-100 px-1 rounded">times_missed</code> from D1 and chooses depth: basic (1×) → detailed (2×) → first-principles with analogy (3×+). The "Open Docs" link resolves from the RAG-retrieved URL — stale generation-time sources are discarded when RAG grounding is active. Uses <code className="bg-slate-100 px-1 rounded">safeJsonParse</code> to handle malformed model output.</p>
+                    <p className="text-xs text-slate-500">Activates lazily when a user clicks <span className="font-semibold text-indigo-600">Why?</span> on a wrong answer. First runs its own independent RAG retrieval for that specific topic via <code className="bg-slate-100 px-1 rounded">/api/retrieve</code>, then injects the passage into the explanation prompt. Reads <code className="bg-slate-100 px-1 rounded">times_missed</code> from D1 and chooses depth: basic (1×) → detailed (2×) → first-principles with analogy (3×+). The "Open Docs" link resolves from the RAG-retrieved URL — stale generation-time sources are discarded when RAG grounding is active.</p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {[['1× → basic', 'indigo'], ['2× → detailed', 'indigo'], ['3× → deep + analogy', 'indigo'], ['RAG URL wins over stale source', 'indigo']].map(([tag]) => (
                         <span key={tag} className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-100">{tag}</span>
@@ -326,7 +346,7 @@ export default function AppFooter({ gameState }) {
                 {/* Cross-layer feedback loop callout */}
                 <div className="ml-16 flex items-center gap-3 bg-gradient-to-r from-purple-50 to-orange-50 border border-purple-100 rounded-xl px-4 py-3">
                   <RefreshCw className="w-4 h-4 text-purple-500 flex-shrink-0" />
-                  <p className="text-xs text-slate-600"><span className="font-semibold text-purple-700">Cross-layer feedback loop:</span> Layer 1 validation failure rates per topic are stored in Layer 3's adaptive profile and re-injected as generation quality warnings on every subsequent prompt. The Jina reranker's 5s graceful fallback ensures Layer 2 never blocks exam generation. The explainer's independent RAG call means doc grounding is always fresh, even if the generation-time source was hallucinated or unrelated.</p>
+                  <p className="text-xs text-slate-600"><span className="font-semibold text-purple-700">Cross-layer feedback loop:</span> Layer 1 validation failure rates per topic are stored in Layer 3's adaptive profile and re-injected as generation quality warnings on every subsequent prompt. Seen concepts from Layer 3 feed back into Layer 2's prompt as hard exclusions. The Jina reranker's graceful fallback ensures Layer 2 never blocks exam generation. The explainer's independent RAG call means doc grounding is always fresh, even if the generation-time source was hallucinated. Every generation run writes a full trace to D1 for observability.</p>
                 </div>
 
               </div>
@@ -350,10 +370,26 @@ export default function AppFooter({ gameState }) {
           <div className="px-6 pb-8 pt-4 bg-slate-50/40 animate-fade-in">
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 text-sm text-slate-600">
               {[
-                { n: '1', title: 'Select a Certification', body: "Pick the Splunk cert track you're studying for. Each card shows a community difficulty heatmap sourced from anonymized D1 aggregates and links to the official exam blueprint." },
-                { n: '2', title: 'Configure Your Exam', body: 'Choose the number of questions, focus on specific blueprint topics, toggle the timer, and select your AI generator engine. The prompt updates dynamically with RAG passages and adaptive weighting.' },
-                { n: '3', title: 'Take the Exam', body: 'Answer all questions before submitting. Use the navigator to jump between questions, flag items for review, and track your progress with the answer bar.' },
-                { n: '4', title: 'Review & Improve', body: 'See your score, click "Why?" on any wrong answer for a RAG-grounded AI explanation, launch a spaced-repetition review session, and watch your adaptive profile reweight future exams toward your weak spots.' },
+                {
+                  n: '1',
+                  title: 'Select a Certification',
+                  body: "Pick the Splunk cert track you're studying for. Each card shows a community difficulty heatmap sourced from anonymized D1 aggregates and links to the official exam blueprint.",
+                },
+                {
+                  n: '2',
+                  title: 'Configure Your Exam',
+                  body: 'Choose the number of questions, focus on specific blueprint topics, toggle the timer, and select your AI generator engine. The prompt updates dynamically with RAG passages, adaptive weighting, and cross-session duplicate exclusions — all wired in automatically.',
+                },
+                {
+                  n: '3',
+                  title: 'Take the Exam',
+                  body: 'Answer all questions before submitting. Use the navigator to jump between questions, flag items for review, and track your progress with the answer bar. Every question set is unique — the dedup agent ensures you never see the same concept twice across sessions.',
+                },
+                {
+                  n: '4',
+                  title: 'Review & Improve',
+                  body: 'See your score, click "Why?" on any wrong answer for a RAG-grounded AI explanation, launch a spaced-repetition review session, and watch your adaptive profile reweight future exams toward your weak spots. All question stems are saved as seen concepts so the next session is always fresh.',
+                },
               ].map(({ n, title, body }) => (
                 <div key={n} className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
                   <div className="w-8 h-8 bg-pink-100 text-pink-600 font-bold flex items-center justify-center rounded-full mb-3">{n}</div>

@@ -34,6 +34,9 @@ export default function App() {
   const [showAdvanced,      setShowAdvanced]      = useState(false);
   const [userEditedPrompt,  setUserEditedPrompt]  = useState(false);
 
+  // ── Focus mode — derived from examConfig but also needs direct toggle ─────
+  const [focusMode, setFocusMode] = useState(false);
+
   const [apiKeys, setApiKeys] = useState(() => {
     const VALID = { perplexity: '', gemini: '', llama: DEFAULT_GROQ_KEY, qwen: '' };
     try {
@@ -47,7 +50,8 @@ export default function App() {
   });
 
   const [examConfig, setExamConfig] = useState({
-    numQuestions: 20, selectedTopics: [], useTimer: true, aiProvider: 'llama', customPrompt: '',
+    numQuestions: 20, selectedTopics: [], useTimer: true, aiProvider: 'llama',
+    customPrompt: '', focusMode: false,
   });
 
   const updateApiKey = useCallback((provider, value) => {
@@ -158,7 +162,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
 8. For ${num <= 5 ? 'small' : 'larger'} question sets, ensure maximum topic variety — do not repeat similar scenarios.`;
   }, []);
 
-  // ── Hooks — order matters: session first, then pass gameState to profile ──
+  // ── Hooks ─────────────────────────────────────────────────────────────────
   const session = useExamSession({ examType, examConfig, apiKeys, buildAgenticPrompt });
 
   const {
@@ -177,6 +181,21 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     setCurrentQuestionIndex: session.setCurrentQuestionIndex,
   });
 
+  // ── Activate focus mode when exam starts (if configured) ──────────────────
+  useEffect(() => {
+    if (session.gameState === 'exam' && examConfig.focusMode) {
+      setFocusMode(true);
+    }
+    // Auto-exit focus mode when exam ends
+    if (session.gameState !== 'exam') {
+      setFocusMode(false);
+    }
+  }, [session.gameState, examConfig.focusMode]);
+
+  const handleExitFocus = useCallback(() => {
+    setFocusMode(false);
+  }, []);
+
   // ── handleSelectExamType ──────────────────────────────────────────────────
   const handleSelectExamType = useCallback(async (selectedType) => {
     setExamType(selectedType);
@@ -192,7 +211,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
     await fetchUsageInfo();
   }, [session.setGameState, prewarmProfile, fetchUsageInfo]);
 
-  // ── Sync prompt when config changes (unless user has manually edited it) ──
+  // ── Sync prompt when config changes ───────────────────────────────────────
   useEffect(() => {
     if (!userEditedPrompt && examType) {
       setExamConfig(prev => ({
@@ -292,6 +311,8 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
             finishExam={session.finishExam}
             onCancelToMenu={session.handleCancelToMenu}
             formatTime={formatTime}
+            focusMode={focusMode}
+            onExitFocus={handleExitFocus}
           />
         )}
 

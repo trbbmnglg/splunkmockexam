@@ -1,7 +1,14 @@
-import { Settings, X, ChevronRight, ListChecks, Clock, BookOpen, Cpu, Key, Lock, CheckCircle, ShieldCheck, Globe, Zap, RotateCcw, ExternalLink, Target, GraduationCap, Focus } from 'lucide-react';
+import { useState, useRef } from 'react';
+import {
+  Settings, X, ChevronRight, ListChecks, Clock, BookOpen, Cpu,
+  Key, Lock, CheckCircle, ShieldCheck, Globe, Zap, RotateCcw,
+  ExternalLink, Target, GraduationCap, Focus, AlertTriangle,
+  ToggleLeft, ToggleRight,
+} from 'lucide-react';
 import { TOPICS, EXAM_BLUEPRINTS, API_KEY_URLS, CURRENT_YEAR, YEAR_RANGE } from '../utils/constants';
 import { DEFAULT_GROQ_KEY } from '../utils/api';
 import { computeExamReadiness } from '../utils/agentAdaptive';
+import { isTrackingEnabled, setTrackingEnabled } from '../utils/privacyToken';
 import BlueprintPanel from './BlueprintPanel';
 
 export default function ConfigScreen({
@@ -19,6 +26,11 @@ export default function ConfigScreen({
   onStart,
   usageInfo,
 }) {
+  // Local tracking state so the strip re-renders immediately on toggle
+  const [trackingOn,      setTrackingOn]      = useState(isTrackingEnabled());
+  const [showConfirmOff,  setShowConfirmOff]  = useState(false);
+  const advancedRef = useRef(null);
+
   const toggleTopic = (topic) => {
     setExamConfig(prev => {
       const selected = prev.selectedTopics.includes(topic)
@@ -28,7 +40,7 @@ export default function ConfigScreen({
     });
   };
 
-  // ── Usage indicator ────────────────────────────────────────────────────────
+  // ── Usage indicator ──────────────────────────────────────────────────────
   const showUsage     = usageInfo !== null && usageInfo !== undefined;
   const remaining     = usageInfo?.remaining ?? 0;
   const usageExceeded = usageInfo?.exceeded ?? false;
@@ -47,10 +59,39 @@ export default function ConfigScreen({
       })
     : 'midnight UTC';
 
-  // ── Readiness score ────────────────────────────────────────────────────────
+  // ── Readiness score ──────────────────────────────────────────────────────
   const bp            = examType ? EXAM_BLUEPRINTS[examType] : null;
   const readiness     = computeExamReadiness(examType, bp?.topics);
   const showReadiness = readiness && readiness.sessions > 0;
+
+  // ── Tracking toggle handlers ─────────────────────────────────────────────
+  const handleTrackingOn = () => {
+    setTrackingEnabled(true);
+    setTrackingOn(true);
+    setShowConfirmOff(false);
+  };
+
+  const handleTrackingOffRequest = () => {
+    setShowConfirmOff(true);
+  };
+
+  const handleConfirmOff = () => {
+    setTrackingEnabled(false);
+    setTrackingOn(false);
+    setShowConfirmOff(false);
+  };
+
+  const handleCancelOff = () => {
+    setShowConfirmOff(false);
+  };
+
+  // ── Scroll to advanced + open it ────────────────────────────────────────
+  const handleOpenAdvanced = () => {
+    setShowAdvanced(true);
+    setTimeout(() => {
+      advancedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  };
 
   return (
     <div className="max-w-3xl mx-auto w-full animate-fade-in bg-white shadow-xl p-6 md:p-10 border border-slate-100 rounded-lg">
@@ -89,7 +130,7 @@ export default function ConfigScreen({
 
       {/* ── Readiness score indicator ── */}
       {showReadiness && (
-        <div className={`flex items-center justify-between p-3 rounded-lg border mb-6 ${readiness.labelBg}`}>
+        <div className={`flex items-center justify-between p-3 rounded-lg border mb-4 ${readiness.labelBg}`}>
           <div className="flex items-center gap-2.5 min-w-0">
             <Target className={`w-4 h-4 flex-shrink-0 ${readiness.labelColor}`} />
             <div className="min-w-0">
@@ -110,6 +151,24 @@ export default function ConfigScreen({
             {readiness.label}
           </span>
         </div>
+      )}
+
+      {/* ── Tracking-off passive strip — only when tracking is disabled ── */}
+      {!trackingOn && (
+        <button
+          onClick={handleOpenAdvanced}
+          className="w-full flex items-center justify-between p-3 rounded-lg border border-amber-200 bg-amber-50 mb-4 text-left hover:bg-amber-100 transition-colors group"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+            <span className="text-xs font-semibold text-amber-800 leading-snug">
+              Tracking disabled — review sessions and cross-device sync unavailable.
+            </span>
+          </div>
+          <span className="text-xs text-amber-600 font-bold flex-shrink-0 ml-3 group-hover:underline whitespace-nowrap">
+            Enable in Advanced ↓
+          </span>
+        </button>
       )}
 
       <div className="space-y-8">
@@ -272,12 +331,12 @@ export default function ConfigScreen({
         </div>
 
         {/* Advanced */}
-        <div className="pt-6 border-t border-slate-200">
+        <div className="pt-6 border-t border-slate-200" ref={advancedRef}>
           <button
             onClick={() => setShowAdvanced(!showAdvanced)}
             className="flex items-center justify-between w-full text-left font-bold text-slate-700 hover:text-pink-600 transition-colors"
           >
-            <span className="flex items-center"><Settings className="w-5 h-5 mr-2" /> Advanced Setup (Generators)</span>
+            <span className="flex items-center"><Settings className="w-5 h-5 mr-2" /> Advanced Setup</span>
             {showAdvanced
               ? <ChevronRight className="w-5 h-5 text-slate-400 rotate-90 transition-transform" />
               : <ChevronRight className="w-5 h-5 text-slate-400 transition-transform" />
@@ -286,6 +345,69 @@ export default function ConfigScreen({
 
           {showAdvanced && (
             <div className="mt-6 bg-slate-50 p-6 border border-slate-200 rounded animate-fade-in shadow-inner space-y-6">
+
+              {/* ── Tracking toggle ── */}
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center uppercase tracking-wider">
+                  <ShieldCheck className="w-4 h-4 mr-2 text-indigo-500" /> Study Progress Tracking
+                </h3>
+
+                <div className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-lg">
+                  <div className="flex-grow min-w-0 mr-4">
+                    <p className="text-sm font-semibold text-slate-800">
+                      {trackingOn ? 'Tracking enabled' : 'Tracking disabled'}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                      {trackingOn
+                        ? 'Wrong answers, adaptive profile, and seen concepts are saved for review sessions and cross-device sync.'
+                        : 'Data is not saved to our servers. Review sessions and cross-device sync are unavailable.'
+                      }
+                    </p>
+                  </div>
+                  <button
+                    onClick={trackingOn ? handleTrackingOffRequest : handleTrackingOn}
+                    className="flex-shrink-0 transition-colors"
+                    aria-label={trackingOn ? 'Disable tracking' : 'Enable tracking'}
+                  >
+                    {trackingOn
+                      ? <ToggleRight className="w-10 h-10 text-indigo-600" />
+                      : <ToggleLeft  className="w-10 h-10 text-slate-400" />
+                    }
+                  </button>
+                </div>
+
+                {/* One-line confirm when turning off */}
+                {showConfirmOff && (
+                  <div className="mt-2 flex items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 animate-fade-in">
+                    <p className="text-xs font-semibold text-amber-800">
+                      This will stop saving new data. Continue?
+                    </p>
+                    <div className="flex gap-2 flex-shrink-0">
+                      <button
+                        onClick={handleCancelOff}
+                        className="text-xs font-semibold px-3 py-1.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleConfirmOff}
+                        className="text-xs font-semibold px-3 py-1.5 bg-amber-500 text-white hover:bg-amber-600 rounded-lg transition-colors"
+                      >
+                        Disable
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+                  For full data rights — download, delete, or manage your data — use the{' '}
+                  <span className="font-semibold text-slate-500">Privacy</span> button in the navigation bar.
+                </p>
+              </div>
+
+              <div className="border-t border-slate-200" />
+
+              {/* ── AI Generator Engine ── */}
               <div>
                 <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center uppercase tracking-wider">
                   <Cpu className="w-4 h-4 mr-2 text-pink-500" /> AI Generator Engine

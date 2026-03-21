@@ -355,7 +355,7 @@ function ReviewTab({ wrongAnswers, userAnswers, bp, groqKey, examType }) {
 // ─── Tab 3: Actions ───────────────────────────────────────────────────────────
 function ActionsTab({
   examType, bp, passed, wrongAnswers,
-  handleStartReview, onRetry, setShowShareModal,
+  handleStartReview, onRetry, setShowShareModal, onGoToConfig,
 }) {
   const trackingOn = isTrackingEnabled();
 
@@ -445,19 +445,33 @@ function ActionsTab({
       )}
 
       {/* Continue on another device */}
-      <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 flex flex-col items-center text-center">
-        <div className="w-9 h-9 bg-pink-100 rounded-lg flex items-center justify-center mb-3">
-          <QrCode className="w-4 h-4 text-pink-600" />
+      <div
+        onClick={() => !trackingOn && onGoToConfig()}
+        className={`rounded-xl border shadow-sm p-5 flex flex-col items-center text-center transition-colors ${
+          trackingOn
+            ? 'bg-white border-slate-100'
+            : 'bg-slate-50 border-slate-100 opacity-60 cursor-pointer hover:opacity-80 hover:bg-slate-100'
+        }`}
+      >
+        <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-3 ${trackingOn ? 'bg-pink-100' : 'bg-slate-100'}`}>
+          <QrCode className={`w-4 h-4 ${trackingOn ? 'text-pink-600' : 'text-slate-400'}`} />
         </div>
         <h4 className="font-bold text-slate-800 text-sm mb-1">Continue on another device</h4>
         <p className="text-slate-500 text-xs mb-4 leading-relaxed">
-          Transfer your adaptive profile, wrong answer bank, and study progress to any device via QR code.
+          {trackingOn
+            ? 'Transfer your adaptive profile, wrong answer bank, and study progress to any device via QR code.'
+            : 'Tracking is off — tap to enable it in Advanced Settings and unlock cross-device transfer.'}
         </p>
         <button
-          onClick={() => setShowShareModal(true)}
-          className="w-full flex items-center justify-center px-5 py-2.5 rounded-lg font-semibold bg-pink-50 text-pink-700 hover:bg-pink-100 transition-colors border border-pink-200 text-sm"
+          onClick={e => { e.stopPropagation(); trackingOn ? setShowShareModal(true) : onGoToConfig(); }}
+          className={`w-full flex items-center justify-center px-5 py-2.5 rounded-lg font-semibold text-sm transition-colors border ${
+            trackingOn
+              ? 'bg-pink-50 text-pink-700 hover:bg-pink-100 border-pink-200'
+              : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
+          }`}
         >
-          <QrCode className="w-4 h-4 mr-2" /> Show QR Code
+          <QrCode className="w-4 h-4 mr-2" />
+          {trackingOn ? 'Show QR Code' : 'Enable tracking →'}
         </button>
       </div>
 
@@ -477,6 +491,7 @@ export default function ResultsScreen({
   handleStartReview,
   onShowFeedback,
   onRetry,
+  onGoToConfig,
 }) {
   if (!resultsData) return null;
 
@@ -572,6 +587,7 @@ export default function ResultsScreen({
             handleStartReview={handleStartReview}
             onRetry={onRetry}
             setShowShareModal={setShowShareModal}
+            onGoToConfig={onGoToConfig}
           />
         )}
       </div>

@@ -362,6 +362,7 @@ QUESTION QUALITY RULES — every question must follow ALL of these:
             handleStartReview={session.handleStartReview}
             onShowFeedback={() => setShowFeedbackModal(true)}
             onRetry={() => session.setGameState('menu')}
+            onGoToConfig={() => { setShowAdvanced(true); session.setGameState('config'); }}
           />
         )}
 

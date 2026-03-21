@@ -3,12 +3,13 @@ import {
   CheckCircle, XCircle, AlertTriangle, BookOpen, Award, RotateCcw,
   ShieldCheck, ExternalLink, Zap, BarChart2, RefreshCw, BadgeCheck,
   CalendarCheck, FileText, Shield, Target, ChevronDown, ChevronUp,
-  GraduationCap,
+  GraduationCap, QrCode,
 } from 'lucide-react';
 import { TOPIC_LINKS, EXAM_BLUEPRINTS } from '../utils/constants';
 import { DEFAULT_GROQ_KEY } from '../utils/api';
 import { getProfileSummary, clearProfile, getUserId, getWrongAnswerBank, computeExamReadiness } from '../utils/agentAdaptive';
 import WrongAnswerCard from './WrongAnswerCard';
+import ShareProfileModal from './ShareProfileModal';
 
 function simpleHash(str) {
   let hash = 0;
@@ -152,6 +153,7 @@ export default function ResultsScreen({
   const groqKey = apiKeys['llama'] || DEFAULT_GROQ_KEY;
 
   const [enrichedQuestions, setEnrichedQuestions] = useState(questions);
+  const [showShareModal,    setShowShareModal]    = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -182,6 +184,11 @@ export default function ResultsScreen({
 
   return (
     <div className="max-w-4xl mx-auto w-full animate-fade-in space-y-8 pb-12">
+
+      {/* Share modal */}
+      {showShareModal && (
+        <ShareProfileModal onClose={() => setShowShareModal(false)} />
+      )}
 
       {/* ── Score header ── */}
       <div className={`p-8 md:p-12 text-center text-white rounded-2xl shadow-xl relative overflow-hidden
@@ -249,7 +256,7 @@ export default function ResultsScreen({
 
           {/* Learning Profile */}
           {profile && profile.sessions >= 1 && (() => {
-            const topTopics = profile.topics.slice(0, 5);
+            const topTopics      = profile.topics.slice(0, 5);
             const graduatedTopics = profile.topics.filter(t => t.graduatedAt);
             return (
               <div className="bg-white rounded-xl shadow-md p-6 border border-slate-100">
@@ -304,10 +311,10 @@ export default function ResultsScreen({
                                 </span>
                               )}
                               <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                                isGrad                 ? 'bg-emerald-100 text-emerald-700' :
-                                t.trend === 'improving' ? 'bg-green-100 text-green-700'   :
-                                t.trend === 'declining' ? 'bg-red-100 text-red-700'       :
-                                t.trend === 'new'       ? 'bg-blue-100 text-blue-700'     :
+                                isGrad                  ? 'bg-emerald-100 text-emerald-700' :
+                                t.trend === 'improving' ? 'bg-green-100 text-green-700'    :
+                                t.trend === 'declining' ? 'bg-red-100 text-red-700'        :
+                                t.trend === 'new'       ? 'bg-blue-100 text-blue-700'      :
                                                           'bg-slate-100 text-slate-500'
                               }`}>
                                 {isGrad ? '🎓' : t.trend}
@@ -360,6 +367,23 @@ export default function ResultsScreen({
               </button>
             </div>
           )}
+
+          {/* Continue on another device — QR */}
+          <div className="bg-white rounded-xl shadow-md p-6 border border-slate-100 flex flex-col items-center text-center">
+            <div className="w-10 h-10 bg-pink-100 rounded-lg flex items-center justify-center mb-3">
+              <QrCode className="w-5 h-5 text-pink-600" />
+            </div>
+            <h4 className="font-bold text-slate-800 mb-1">Continue on another device</h4>
+            <p className="text-slate-500 text-sm mb-4">
+              Scan a QR code to transfer your adaptive profile, wrong answer bank, and study progress to any device.
+            </p>
+            <button
+              onClick={() => setShowShareModal(true)}
+              className="w-full flex items-center justify-center px-6 py-3 rounded-lg font-semibold bg-pink-50 text-pink-700 hover:bg-pink-100 transition-colors border border-pink-200 text-sm"
+            >
+              <QrCode className="w-4 h-4 mr-2" /> Show QR Code
+            </button>
+          </div>
 
           {/* Submit official result */}
           <div className="bg-white rounded-xl shadow-md p-6 border border-slate-100 flex flex-col items-center text-center">

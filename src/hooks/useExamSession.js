@@ -102,14 +102,35 @@ function randomizeQuestion(q) {
   while (safeOptions.length < 4) safeOptions.push(`Dummy Option ${safeOptions.length + 1}`);
 
   const shuffledOptions = [...safeOptions].sort(() => Math.random() - 0.5);
-  const correctIndex    = shuffledOptions.findIndex(opt => opt === safeAnswer);
+  const norm = s => s.trim().replace(/\s+/g, ' ').toLowerCase();
+
+  // 1st pass: exact normalize match
+  let correctIndex = shuffledOptions.findIndex(opt => norm(opt) === norm(safeAnswer));
+
+  // 2nd pass: fuzzy — find option with most shared words (handles model rewording)
+  if (correctIndex === -1) {
+    const answerWords = new Set(norm(safeAnswer).split(/\s+/));
+    const scores = shuffledOptions.map(opt => {
+      const optWords = norm(opt).split(/\s+/);
+      const shared = optWords.filter(w => answerWords.has(w)).length;
+      return shared / Math.max(answerWords.size, optWords.length);
+    });
+    const best = scores.indexOf(Math.max(...scores));
+    if (scores[best] >= 0.6) {
+      console.info('[Question] Fuzzy matched answer:', safeAnswer, '→', shuffledOptions[best], `(${Math.round(scores[best]*100)}%)`);
+      correctIndex = best;
+    } else {
+      console.warn('[Question] Answer-option mismatch (fuzzy also failed):', safeAnswer, '| options:', shuffledOptions, '| scores:', scores);
+    }
+  }
 
   return {
     ...q,
     question:     safeQuestion,
     options:      shuffledOptions,
     correctIndex: correctIndex !== -1 ? correctIndex : 0,
-    answer:       safeAnswer,
+    answer:       shuffledOptions[correctIndex !== -1 ? correctIndex : 0], // snap answer to matched option text
+
     topic:        typeof q.topic     === 'string' ? q.topic     : JSON.stringify(q?.topic     || 'General'),
     docSource:    typeof q.docSource === 'string' ? q.docSource : '',
   };
@@ -333,7 +354,9 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
       _hash:        item.question_hash,
     })).map(q => {
       const shuffled = [...q.options].sort(() => Math.random() - 0.5);
-      return { ...q, options: shuffled, correctIndex: shuffled.indexOf(q.answer) };
+      const norm2 = s => s.trim().replace(/\s+/g, ' ').toLowerCase();
+      const ci2 = shuffled.findIndex(o => norm2(o) === norm2(q.answer));
+      return { ...q, options: shuffled, correctIndex: ci2 !== -1 ? ci2 : 0 };
     });
 
     const hashes      = originalQuestions.map(q => q._hash).filter(Boolean);
@@ -379,7 +402,9 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
           let opts = Array.isArray(q.options) ? q.options.map(o => typeof o === 'string' ? o : '') : ['A', 'B', 'C', 'D'];
           while (opts.length < 4) opts.push(`Option ${opts.length + 1}`);
           const shuffled = [...opts].sort(() => Math.random() - 0.5);
-          return { ...q, options: shuffled, correctIndex: shuffled.indexOf(safeAnswer) !== -1 ? shuffled.indexOf(safeAnswer) : 0 };
+          const norm3 = s => s.trim().replace(/\s+/g, ' ').toLowerCase();
+          const ci3 = shuffled.findIndex(o => norm3(o) === norm3(safeAnswer));
+          return { ...q, options: shuffled, correctIndex: ci3 !== -1 ? ci3 : 0 };
         });
       }
     }

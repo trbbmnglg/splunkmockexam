@@ -8,6 +8,7 @@ import {
 import { TOPIC_LINKS, EXAM_BLUEPRINTS } from '../utils/constants';
 import { DEFAULT_GROQ_KEY } from '../utils/api';
 import { getProfileSummary, clearProfile, getUserId, getWrongAnswerBank, computeExamReadiness } from '../utils/agentAdaptive';
+import { isTrackingEnabled } from '../utils/privacyToken';
 import WrongAnswerCard from './WrongAnswerCard';
 import ShareProfileModal from './ShareProfileModal';
 
@@ -170,7 +171,7 @@ function ReadinessCard({ examType, bp }) {
 
 // ─── Learning Profile Card ────────────────────────────────────────────────────
 function LearningProfileCard({ examType, profileVersion, setProfileVersion }) {
-  const profile         = getProfileSummary(examType);
+  const profile = getProfileSummary(examType);
   if (!profile || profile.sessions < 1) return null;
 
   const graduatedTopics = profile.topics.filter(t => t.graduatedAt);
@@ -267,8 +268,6 @@ function LearningProfileCard({ examType, profileVersion, setProfileVersion }) {
 function ResultsTab({ topicsToReview, examType, bp, profileVersion, setProfileVersion }) {
   return (
     <div className="p-6 space-y-6">
-
-      {/* Topics to Review */}
       <div>
         <h3 className="text-base font-bold text-slate-800 flex items-center mb-4">
           <BookOpen className="w-5 h-5 mr-2 text-pink-500" /> Topics to Review
@@ -301,17 +300,12 @@ function ResultsTab({ topicsToReview, examType, bp, profileVersion, setProfileVe
           </div>
         )}
       </div>
-
-      {/* Exam Readiness */}
       <ReadinessCard examType={examType} bp={bp} />
-
-      {/* Learning Profile */}
       <LearningProfileCard
         examType={examType}
         profileVersion={profileVersion}
         setProfileVersion={setProfileVersion}
       />
-
     </div>
   );
 }
@@ -363,10 +357,12 @@ function ActionsTab({
   examType, bp, passed, wrongAnswers,
   handleStartReview, onRetry, setShowShareModal,
 }) {
+  const trackingOn = isTrackingEnabled();
+
   return (
     <div className="p-6 space-y-5">
 
-      {/* Review session CTA */}
+      {/* Review session CTA — hidden when tracking off, replaced with nudge */}
       {wrongAnswers.length > 0 && (
         <div className="bg-white rounded-xl border border-orange-100 shadow-sm p-5">
           <div className="flex items-start gap-4 mb-4">
@@ -380,12 +376,24 @@ function ActionsTab({
               </p>
             </div>
           </div>
-          <button
-            onClick={handleStartReview}
-            className="w-full flex items-center justify-center px-5 py-2.5 rounded-lg font-bold bg-orange-500 text-white hover:bg-orange-600 transition-colors shadow-sm text-sm"
-          >
-            <RefreshCw className="w-4 h-4 mr-2" /> Start Review Session
-          </button>
+
+          {trackingOn ? (
+            <button
+              onClick={handleStartReview}
+              className="w-full flex items-center justify-center px-5 py-2.5 rounded-lg font-bold bg-orange-500 text-white hover:bg-orange-600 transition-colors shadow-sm text-sm"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" /> Start Review Session
+            </button>
+          ) : (
+            /* Tracking is off — review bank is empty, explain why */
+            <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-800 leading-relaxed">
+                <span className="font-semibold">Tracking is disabled</span> — missed questions aren't saved to your review bank.
+                Enable tracking in <span className="font-semibold">Config → Advanced Settings</span> before your next exam to use this feature.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -476,9 +484,9 @@ export default function ResultsScreen({
   const bp      = EXAM_BLUEPRINTS[examType];
   const groqKey = apiKeys['llama'] || DEFAULT_GROQ_KEY;
 
-  const [activeTab,         setActiveTab]         = useState('results');
+  const [activeTab,         setActiveTab]      = useState('results');
   const [enrichedQuestions, setEnrichedQuestions] = useState(questions);
-  const [showShareModal,    setShowShareModal]    = useState(false);
+  const [showShareModal,    setShowShareModal]  = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -513,7 +521,7 @@ export default function ResultsScreen({
         <ShareProfileModal onClose={() => setShowShareModal(false)} />
       )}
 
-      {/* ── Score header — always visible ── */}
+      {/* Score header */}
       <div className={`p-8 md:p-10 text-center text-white rounded-2xl shadow-xl relative overflow-hidden
         ${passed ? 'bg-gradient-to-br from-green-500 to-emerald-700' : 'bg-gradient-to-br from-red-500 to-pink-700'}`}
       >
@@ -533,13 +541,9 @@ export default function ResultsScreen({
         </div>
       </div>
 
-      {/* ── Tabbed panel ── */}
+      {/* Tabbed panel */}
       <div className="bg-white rounded-xl shadow-md border border-slate-100 overflow-hidden">
-        <TabBar
-          active={activeTab}
-          onChange={setActiveTab}
-          wrongCount={wrongAnswers.length}
-        />
+        <TabBar active={activeTab} onChange={setActiveTab} wrongCount={wrongAnswers.length} />
 
         {activeTab === 'results' && (
           <ResultsTab
@@ -550,7 +554,6 @@ export default function ResultsScreen({
             setProfileVersion={setProfileVersion}
           />
         )}
-
         {activeTab === 'review' && (
           <ReviewTab
             wrongAnswers={wrongAnswers}
@@ -560,7 +563,6 @@ export default function ResultsScreen({
             examType={examType}
           />
         )}
-
         {activeTab === 'actions' && (
           <ActionsTab
             examType={examType}

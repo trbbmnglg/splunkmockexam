@@ -12,8 +12,6 @@
 -- ============================================================
 
 -- ── Adaptive performance profile per user per exam type per topic ─────────────
--- score_history : JSON array of last 7 session scores (rolling window)
--- graduated_at  : ISO timestamp when topic reached 4× consecutive ≥80% — null if not yet mastered
 CREATE TABLE IF NOT EXISTS topic_profiles (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id       TEXT    NOT NULL,
@@ -21,17 +19,16 @@ CREATE TABLE IF NOT EXISTS topic_profiles (
   topic         TEXT    NOT NULL,
   attempts      INTEGER NOT NULL DEFAULT 0,
   errors        INTEGER NOT NULL DEFAULT 0,
-  last_score    INTEGER NOT NULL DEFAULT 0,       -- % correct last session (0-100)
-  trend         TEXT    NOT NULL DEFAULT 'new',   -- new|improving|stable|declining
-  score_history TEXT    NOT NULL DEFAULT '[]',    -- JSON array, capped at 7 entries
-  graduated_at  TEXT             DEFAULT NULL,    -- ISO timestamp or NULL
+  last_score    INTEGER NOT NULL DEFAULT 0,
+  trend         TEXT    NOT NULL DEFAULT 'new',
+  score_history TEXT    NOT NULL DEFAULT '[]',
+  graduated_at  TEXT             DEFAULT NULL,
   sessions      INTEGER NOT NULL DEFAULT 0,
   last_updated  TEXT    NOT NULL,
   UNIQUE(user_id, exam_type, topic)
 );
 
 -- ── Persistent wrong answer bank with spaced repetition ───────────────────────
--- Schedule: 1 → 3 → 7 → 14 → 30 → 60 days based on times_missed
 CREATE TABLE IF NOT EXISTS wrong_answers (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id        TEXT    NOT NULL,
@@ -42,12 +39,11 @@ CREATE TABLE IF NOT EXISTS wrong_answers (
   correct_answer TEXT    NOT NULL,
   times_missed   INTEGER NOT NULL DEFAULT 1,
   last_missed    TEXT    NOT NULL,
-  next_review    TEXT    NOT NULL,               -- YYYY-MM-DD
+  next_review    TEXT    NOT NULL,
   UNIQUE(user_id, exam_type, topic, question_hash)
 );
 
 -- ── Community aggregated stats (anonymized) ───────────────────────────────────
--- Written after every session; no user IDs stored here
 CREATE TABLE IF NOT EXISTS community_stats (
   exam_type      TEXT    NOT NULL,
   topic          TEXT    NOT NULL,
@@ -59,8 +55,8 @@ CREATE TABLE IF NOT EXISTS community_stats (
 
 -- ── Daily usage rate limiting (dual-signal: userId + hashed IP) ───────────────
 CREATE TABLE IF NOT EXISTS usage_limits (
-  user_id      TEXT    NOT NULL,   -- anonymous userId OR 'ip_<hash>'
-  exam_date    TEXT    NOT NULL,   -- YYYY-MM-DD UTC
+  user_id      TEXT    NOT NULL,
+  exam_date    TEXT    NOT NULL,
   exam_count   INTEGER NOT NULL DEFAULT 0,
   last_updated TEXT    NOT NULL,
   PRIMARY KEY(user_id, exam_date)
@@ -70,7 +66,7 @@ CREATE TABLE IF NOT EXISTS usage_limits (
 CREATE TABLE IF NOT EXISTS feedback_submissions (
   id                    INTEGER PRIMARY KEY AUTOINCREMENT,
   exam_type             TEXT    NOT NULL,
-  result_status         TEXT    NOT NULL,   -- 'pass' | 'fail'
+  result_status         TEXT    NOT NULL,
   evidence_text         TEXT    NOT NULL,
   feedback_text         TEXT    NOT NULL,
   validation_confidence REAL             DEFAULT NULL,
@@ -79,17 +75,16 @@ CREATE TABLE IF NOT EXISTS feedback_submissions (
 );
 
 -- ── Generation trace log (observability) ─────────────────────────────────────
--- Written fire-and-forget after every exam generation run
 CREATE TABLE IF NOT EXISTS generation_traces (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id             TEXT    NOT NULL,
   exam_type           TEXT    NOT NULL,
-  provider            TEXT    NOT NULL,   -- llama|gemini|perplexity|qwen
+  provider            TEXT    NOT NULL,
   model               TEXT    NOT NULL,
   prompt_tokens       INTEGER NOT NULL DEFAULT 0,
   completion_tokens   INTEGER NOT NULL DEFAULT 0,
   latency_ms          INTEGER NOT NULL DEFAULT 0,
-  schema_enforced     INTEGER NOT NULL DEFAULT 0,   -- 0|1 (boolean)
+  schema_enforced     INTEGER NOT NULL DEFAULT 0,
   parse_strategy      TEXT    NOT NULL DEFAULT 'regex_fallback',
   retries             INTEGER NOT NULL DEFAULT 0,
   error               TEXT             DEFAULT NULL,
@@ -101,16 +96,26 @@ CREATE TABLE IF NOT EXISTS generation_traces (
 );
 
 -- ── Cross-session duplicate detection ────────────────────────────────────────
--- Stores hashed question stems so the AI cannot regenerate seen concepts.
--- Capped at 100 per user per exam (oldest trimmed on insert in seenConcepts.js).
 CREATE TABLE IF NOT EXISTS seen_concepts (
   user_id      TEXT NOT NULL,
   exam_type    TEXT NOT NULL,
   concept_hash TEXT NOT NULL,
-  concept_hint TEXT NOT NULL,   -- first 80 chars of question stem (debugging aid)
+  concept_hint TEXT NOT NULL,
   topic        TEXT NOT NULL,
   created_at   TEXT NOT NULL,
   PRIMARY KEY(user_id, exam_type, concept_hash)
+);
+
+-- ── Privacy tokens ────────────────────────────────────────────────────────────
+-- Stores a SHA-256 hash of the client-side deletion token.
+-- The raw token is NEVER stored — only the hash.
+-- Used to authenticate delete-all and data-download requests.
+-- Without a valid userId + matching token hash, sensitive operations are rejected.
+CREATE TABLE IF NOT EXISTS privacy_tokens (
+  user_id     TEXT NOT NULL PRIMARY KEY,
+  token_hash  TEXT NOT NULL,  -- SHA-256 hash of raw token, hex-encoded
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
 );
 
 -- ── Indexes ───────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, memo } from 'react';
 import {
   Settings, X, ChevronRight, ListChecks, Clock, BookOpen, Cpu,
   Key, Lock, CheckCircle, ShieldCheck, Globe, Zap, RotateCcw,
@@ -11,7 +11,7 @@ import { computeExamReadiness } from '../utils/agentAdaptive';
 import { isTrackingEnabled, setTrackingEnabled } from '../utils/privacyToken';
 import BlueprintPanel from './BlueprintPanel';
 
-export default function ConfigScreen({
+export default memo(function ConfigScreen({
   examType,
   examConfig,
   setExamConfig,
@@ -534,4 +534,4 @@ export default function ConfigScreen({
       </div>
     </div>
   );
-}
+});

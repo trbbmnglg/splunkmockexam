@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import {
   CheckCircle, XCircle, AlertTriangle, BookOpen, RotateCcw,
   ExternalLink, Zap, BarChart2, RefreshCw, BadgeCheck,
@@ -480,7 +480,7 @@ function ActionsTab({
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export default function ResultsScreen({
+export default memo(function ResultsScreen({
   resultsData,
   examType,
   questions,
@@ -594,4 +594,4 @@ export default function ResultsScreen({
 
     </div>
   );
-}
+});

@@ -6,7 +6,9 @@
  * loading message string from useExamSession.
  */
 
-export default function LoadingScreen({ loadingText }) {
+import { memo } from 'react';
+
+export default memo(function LoadingScreen({ loadingText }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-6">
       <div className="w-16 h-16 border-4 border-pink-200 border-t-pink-600 rounded-full animate-spin" />
@@ -16,4 +18,4 @@ export default function LoadingScreen({ loadingText }) {
       </p>
     </div>
   );
-}
+});

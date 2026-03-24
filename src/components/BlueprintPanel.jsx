@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { BarChart2, ChevronUp, ChevronDown, ListChecks, Timer, BadgeCheck, GraduationCap, AlertCircle, FileText, CalendarCheck } from 'lucide-react';
 
 const LEVEL_COLORS = {
@@ -15,7 +15,7 @@ const BAR_COLORS = [
   'bg-rose-500','bg-amber-500','bg-lime-500','bg-sky-500',
 ];
 
-export default function BlueprintPanel({ bp }) {
+export default memo(function BlueprintPanel({ bp }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -105,4 +105,4 @@ export default function BlueprintPanel({ bp }) {
       )}
     </div>
   );
-}
+});

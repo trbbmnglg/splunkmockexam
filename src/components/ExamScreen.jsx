@@ -1,11 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, memo } from 'react';
 import {
   Clock, CheckCircle, AlertTriangle, ChevronRight, ChevronLeft,
   BookOpen, Flag, X, LayoutGrid, AlertCircle, Infinity, RefreshCw,
   Focus, Minimize2,
 } from 'lucide-react';
 
-export default function ExamScreen({
+export default memo(function ExamScreen({
   questions,
   currentQuestionIndex,
   setCurrentQuestionIndex,
@@ -368,4 +368,4 @@ export default function ExamScreen({
   }
 
   return examContent;
-}
+});

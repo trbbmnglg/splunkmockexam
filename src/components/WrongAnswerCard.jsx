@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { ChevronUp, ChevronDown, CheckCircle, XCircle, AlertTriangle, BookOpen, Star, ExternalLink, Zap } from 'lucide-react';
 import { fetchExplanation } from '../utils/agentExplainer';
 
-export default function WrongAnswerCard({
+export default memo(function WrongAnswerCard({
   questionIndex,
   question,
   yourAnswer,
@@ -193,4 +193,4 @@ export default function WrongAnswerCard({
       )}
     </div>
   );
-}
+});

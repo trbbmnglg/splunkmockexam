@@ -243,14 +243,14 @@ Do not paraphrase, abbreviate, or reword the answer — copy it exactly.`;
 
     const safeMessage = error.name === 'AbortError'
       ? 'Request timed out — the AI provider may be slow. Try again or switch providers.'
-      : error.message?.includes('HTTP error! status: 401')
+      : error.message?.includes('status: 401')
         ? 'Invalid API key — please check your key in Advanced Settings.'
-        : error.message?.includes('HTTP error! status: 403')
+        : error.message?.includes('status: 403')
           ? 'Access denied — your API key may lack permissions for this model.'
-          : error.message?.includes('HTTP error! status: 429')
+          : error.message?.includes('status: 429')
             ? 'Rate limited — too many requests. Wait a moment and try again.'
             : error.message?.includes('HTTP error')
-              ? error.message
+              ? 'The AI provider returned an error. Please try again or switch providers.'
               : 'An unexpected error occurred. Check your internet connection and try again.';
 
     return {

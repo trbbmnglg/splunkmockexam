@@ -6,9 +6,10 @@
  * Dismissed by calling onDismiss which clears the error in useExamSession.
  */
 
+import { memo } from 'react';
 import { AlertTriangle } from 'lucide-react';
 
-export default function ErrorModal({ apiError, onDismiss }) {
+export default memo(function ErrorModal({ apiError, onDismiss }) {
   if (!apiError) return null;
 
   return (
@@ -30,4 +31,4 @@ export default function ErrorModal({ apiError, onDismiss }) {
       </div>
     </div>
   );
-}
+});

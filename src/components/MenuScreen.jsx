@@ -12,10 +12,11 @@
  *   onShowFeedback    — opens the FeedbackModal
  */
 
+import { memo } from 'react';
 import { Award, Settings, LayoutGrid, List, Users, Flame } from 'lucide-react';
 import { CERT_CARDS } from '../utils/constants';
 
-export default function MenuScreen({
+export default memo(function MenuScreen({
   viewMode,
   setViewMode,
   communityStats,
@@ -122,4 +123,4 @@ export default function MenuScreen({
       </div>
     </div>
   );
-}
+});

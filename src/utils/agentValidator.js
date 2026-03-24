@@ -88,7 +88,9 @@ Format:
 
   } catch (err) {
     console.warn('[Validator] Validation call failed, skipping:', err.message);
-    return [];
+    // Return null (not empty array) so the pipeline knows validation was skipped
+    // rather than thinking all questions passed.
+    return null;
   }
 };
 
@@ -225,7 +227,15 @@ export const runValidationPipeline = async (
       : `Validating question quality (pass ${cycle}/${limit})...`;
     onProgress?.(cycleLabel);
 
-    const failures    = await validateQuestions(current, examType, blueprintLevel, apiKey);
+    const failures = await validateQuestions(current, examType, blueprintLevel, apiKey);
+
+    // null means the validation call itself failed — skip this cycle entirely
+    if (failures === null) {
+      console.warn(`[Validator] Cycle ${cycle}: validation call failed, skipping refinement.`);
+      onProgress?.('Quality check skipped (validation unavailable)');
+      break;
+    }
+
     const failureRate = failures.length / current.length;
     log.push({
       cycle,

@@ -520,7 +520,7 @@ export const clearReviewedAnswers = (examType, questionHashes) => {
 // ─── Cross-session duplicate detection ───────────────────────────────────────
 function hashConcept(str) {
   let hash = 0;
-  const s = (str || '').slice(0, 200);
+  const s = str || '';
   for (let i = 0; i < s.length; i++) {
     const char = s.charCodeAt(i);
     hash = ((hash << 5) - hash) + char;

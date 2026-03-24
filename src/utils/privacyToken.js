@@ -99,6 +99,9 @@ export function setTrackingEnabled(enabled) {
  *   - Adaptive profile
  *   - User ID (new one generated on next app load)
  * Call this AFTER the D1 wipe has succeeded.
+ *
+ * After clearing, a new privacy token is immediately generated so that
+ * subsequent sensitive operations don't fail with an unregistered token.
  */
 export function clearAllLocalData() {
   try {
@@ -111,5 +114,7 @@ export function clearAllLocalData() {
       'splunkMockExamApiKeys',
     ];
     keysToRemove.forEach(k => localStorage.removeItem(k));
+    // Pre-generate a new token so getOrCreateToken() is ready immediately
+    getOrCreateToken();
   } catch { /* non-fatal */ }
 }

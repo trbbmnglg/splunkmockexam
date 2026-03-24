@@ -16,12 +16,16 @@
  *   Add to .env.local and Cloudflare Pages environment variables.
  */
 
-const PASSPHRASE  = import.meta.env.VITE_QR_SECRET || 'splunk-mocktest-default-secret';
+const PASSPHRASE  = import.meta.env.VITE_QR_SECRET;
+if (!PASSPHRASE) {
+  console.error('[QR] VITE_QR_SECRET is not set — QR profile transfer will be disabled.');
+}
 const SALT        = 'splunk-mocktest-qr-salt-v1';   // fixed, non-secret
 const EXPIRY_MS   = 24 * 60 * 60 * 1000;            // 24 hours
 
 // ── Key derivation ────────────────────────────────────────────────────────────
 async function deriveKey() {
+  if (!PASSPHRASE) throw new Error('VITE_QR_SECRET is not configured');
   const enc      = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
@@ -107,7 +111,10 @@ export async function decryptUserId(param) {
     );
 
     const decoded = new TextDecoder().decode(plaintext);
-    const [userId, timestampStr] = decoded.split('|');
+    const firstPipe = decoded.indexOf('|');
+    if (firstPipe === -1) return null;
+    const userId       = decoded.slice(0, firstPipe);
+    const timestampStr = decoded.slice(firstPipe + 1);
 
     if (!userId || !timestampStr) return null;
 

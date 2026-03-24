@@ -37,14 +37,19 @@ export function useAdaptiveProfile({ gameState, apiKeys }) {
   // ── Load community stats when menu is shown ──────────────────────────────
   useEffect(() => {
     if (gameState !== 'menu') return;
+    let cancelled = false;
     const CERT_IDS = Object.keys(EXAM_BLUEPRINTS);
-    CERT_IDS.forEach(async (id) => {
-      if (communityStats[id]) return;
-      const data = await getCommunityStats(id);
-      if (data?.topics?.length > 0) {
-        setCommunityStats(prev => ({ ...prev, [id]: data }));
-      }
-    });
+
+    Promise.all(
+      CERT_IDS.filter(id => !communityStats[id]).map(async (id) => {
+        const data = await getCommunityStats(id);
+        if (!cancelled && data?.topics?.length > 0) {
+          setCommunityStats(prev => ({ ...prev, [id]: data }));
+        }
+      })
+    ).catch(() => { /* non-fatal */ });
+
+    return () => { cancelled = true; };
   }, [gameState]);
 
   // ── Pre-warm adaptive profile when exam type is selected ─────────────────

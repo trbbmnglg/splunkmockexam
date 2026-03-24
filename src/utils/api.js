@@ -441,11 +441,20 @@ Do not paraphrase, abbreviate, or reword the answer — copy it exactly.`;
     trace.error     = error.message;
     trace.latencyMs = trace.latencyMs || 0;
     console.error(`[API] Failed to generate questions with ${provider}:`, error);
+
+    // Sanitize: only show safe error categories to the user — provider error
+    // messages may echo back partial request context including API keys.
+    const safeMessage = error.name === 'AbortError'
+      ? 'Request timed out.'
+      : error.message?.includes('HTTP error')
+        ? error.message
+        : 'An unexpected error occurred.';
+
     return {
       questions: getFallbackQuestions(examType, config.numQuestions),
       error:
         `Failed to generate questions using ${provider.toUpperCase()}.\n\n` +
-        `Please check your API key and internet connection. (Error: ${error.message})\n\n` +
+        `Please check your API key and internet connection. (${safeMessage})\n\n` +
         `Loading fallback practice questions instead.`,
       trace,
     };

@@ -1,0 +1,298 @@
+/**
+ * Profile loading, updating, readiness scoring, and summary.
+ */
+import { isTrackingEnabled } from './privacyToken.js';
+import { BASE_URL } from './baseUrl';
+import {
+  getUserId, loadLocalProfile, saveLocalProfile,
+  SCORE_HISTORY_WINDOW, GRADUATION_WINDOW, GRADUATION_THRESHOLD,
+} from './adaptiveStorage';
+
+// ─── Rolling trend from score history ────────────────────────────────────────
+const computeRollingTrend = (scoreHistory, lastScore, prevScore) => {
+  if (Array.isArray(scoreHistory) && scoreHistory.length >= 2) {
+    const mid       = Math.floor(scoreHistory.length / 2);
+    const older     = scoreHistory.slice(0, mid);
+    const recent    = scoreHistory.slice(mid);
+    const avgOlder  = older.reduce((s, v) => s + v, 0) / older.length;
+    const avgRecent = recent.reduce((s, v) => s + v, 0) / recent.length;
+    const delta     = avgRecent - avgOlder;
+    if (delta > 10)  return 'improving';
+    if (delta < -10) return 'declining';
+    return 'stable';
+  }
+  if (typeof lastScore === 'number' && typeof prevScore === 'number') {
+    if (lastScore > prevScore + 10) return 'improving';
+    if (lastScore < prevScore - 10) return 'declining';
+    return 'stable';
+  }
+  return 'new';
+};
+
+// ─── Client-side graduation check ────────────────────────────────────────────
+const computeGraduatedAt = (scoreHistory, existingGraduatedAt, now) => {
+  if (!Array.isArray(scoreHistory) || scoreHistory.length < GRADUATION_WINDOW) return null;
+  const latestScore = scoreHistory[scoreHistory.length - 1];
+  if (latestScore < GRADUATION_THRESHOLD) return null;
+  const window    = scoreHistory.slice(-GRADUATION_WINDOW);
+  const allStrong = window.every(s => s >= GRADUATION_THRESHOLD);
+  if (allStrong) return existingGraduatedAt || now;
+  return null;
+};
+
+// ─── Append score to local history ───────────────────────────────────────────
+const appendToHistory = (existingHistory, newScore) => {
+  const history = Array.isArray(existingHistory) ? [...existingHistory] : [];
+  history.push(newScore);
+  if (history.length > SCORE_HISTORY_WINDOW) {
+    return history.slice(history.length - SCORE_HISTORY_WINDOW);
+  }
+  return history;
+};
+
+// ─── Compute per-topic validation failure rates ───────────────────────────────
+const computeTopicValidationFailures = (validationLog, questions) => {
+  if (!validationLog || validationLog.length === 0) return {};
+  const firstCycle = validationLog[0];
+  if (!firstCycle || !firstCycle.failures || firstCycle.failures.length === 0) return {};
+
+  const indexToTopic = {};
+  questions.forEach((q, i) => { indexToTopic[i] = q.topic || 'General'; });
+
+  const topicFailCounts  = {};
+  const topicTotalCounts = {};
+
+  firstCycle.failures.forEach(f => {
+    const topic = indexToTopic[f.index] || 'General';
+    topicFailCounts[topic] = (topicFailCounts[topic] || 0) + 1;
+  });
+  questions.forEach(q => {
+    const topic = q.topic || 'General';
+    topicTotalCounts[topic] = (topicTotalCounts[topic] || 0) + 1;
+  });
+
+  const result = {};
+  for (const topic of Object.keys(topicFailCounts)) {
+    const total = topicTotalCounts[topic] || 1;
+    result[topic] = Math.round((topicFailCounts[topic] / total) * 100);
+  }
+  return result;
+};
+
+// ─── Load profile — D1 first, localStorage fallback ──────────────────────────
+export const loadProfile = async (examType) => {
+  const userId = getUserId();
+  try {
+    const res = await fetch(
+      `${BASE_URL}/profile?userId=${encodeURIComponent(userId)}&examType=${encodeURIComponent(examType)}`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      if (data.topics && Object.keys(data.topics).length > 0) {
+        const local = loadLocalProfile();
+        local[examType] = {
+          sessions:    data.sessions,
+          lastUpdated: data.lastUpdated,
+          topics:      Object.fromEntries(
+            Object.entries(data.topics).map(([name, t]) => [name, {
+              attempts:              t.attempts,
+              errors:                t.errors,
+              lastScore:             t.lastScore,
+              trend:                 t.trend,
+              scoreHistory:          t.scoreHistory          || [],
+              graduatedAt:           t.graduatedAt           || null,
+              validationFailureRate: t.validationFailureRate ?? 0,
+            }])
+          ),
+        };
+        saveLocalProfile(local);
+      }
+      return data;
+    }
+  } catch (err) {
+    console.warn('[Adaptive] D1 read failed, using localStorage:', err.message);
+  }
+  const local       = loadLocalProfile();
+  const examProfile = local[examType];
+  if (!examProfile) return { sessions: 0, lastUpdated: null, topics: {} };
+  return examProfile;
+};
+
+// ─── Update profile after exam ────────────────────────────────────────────────
+export const updateProfile = async (examType, questions, userAnswers, validationLog = []) => {
+  const userId = getUserId();
+  const now    = new Date().toISOString();
+
+  const sessionTopicStats = {};
+  questions.forEach((q, idx) => {
+    const topic = q.topic || 'General';
+    if (!sessionTopicStats[topic]) sessionTopicStats[topic] = { attempts: 0, errors: 0 };
+    sessionTopicStats[topic].attempts += 1;
+    if (userAnswers[idx] !== q.correctIndex) sessionTopicStats[topic].errors += 1;
+  });
+
+  const topicValidationFailures = computeTopicValidationFailures(validationLog, questions);
+  const overallFailureRate      = validationLog[0]?.failureRate ?? 0;
+
+  const sessionResults = Object.entries(sessionTopicStats).map(([topic, stats]) => ({
+    topic,
+    attempts:              stats.attempts,
+    errors:                stats.errors,
+    sessionScore:          Math.round(((stats.attempts - stats.errors) / stats.attempts) * 100),
+    validationFailureRate: topicValidationFailures[topic] ?? 0,
+  }));
+
+  if (isTrackingEnabled()) {
+    fetch(`${BASE_URL}/profile`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ userId, examType, sessionResults, overallFailureRate })
+    }).catch(err => console.warn('[Adaptive] D1 write failed:', err.message));
+
+    const wrongAnswers = questions
+      .map((q, idx) => ({ q, idx }))
+      .filter(({ q, idx }) => userAnswers[idx] !== q.correctIndex)
+      .map(({ q }) => ({
+        topic:         q.topic || 'General',
+        question:      q.question,
+        correctAnswer: q.options[q.correctIndex],
+      }));
+
+    if (wrongAnswers.length > 0) {
+      fetch(`${BASE_URL}/wrong-answers`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ userId, examType, wrongAnswers })
+      }).catch(err => console.warn('[Adaptive] Wrong answers write failed:', err.message));
+    }
+  } else {
+    console.info('[Adaptive] Tracking disabled — skipping D1 profile + wrong answers write');
+  }
+
+  const local = loadLocalProfile();
+  if (!local[examType]) local[examType] = { sessions: 0, lastUpdated: null, topics: {} };
+  const examProfile       = local[examType];
+  examProfile.sessions   += 1;
+  examProfile.lastUpdated = now;
+
+  for (const { topic, attempts, errors, sessionScore, validationFailureRate } of sessionResults) {
+    const prev = examProfile.topics[topic];
+
+    if (!prev) {
+      examProfile.topics[topic] = {
+        attempts, errors,
+        lastScore: sessionScore, trend: 'new',
+        scoreHistory: [sessionScore], graduatedAt: null,
+        validationFailureRate,
+      };
+    } else {
+      const updatedHistory = appendToHistory(prev.scoreHistory || [], sessionScore);
+      const newTrend       = computeRollingTrend(updatedHistory, sessionScore, prev.lastScore ?? 50);
+      const newGraduatedAt = computeGraduatedAt(updatedHistory, prev.graduatedAt, now);
+
+      const prevVfr = prev.validationFailureRate ?? 0;
+      const newVfr  = prevVfr > 0
+        ? Math.round((prevVfr + validationFailureRate) / 2)
+        : validationFailureRate;
+
+      examProfile.topics[topic] = {
+        attempts:              prev.attempts + attempts,
+        errors:                prev.errors   + errors,
+        lastScore:             sessionScore,
+        trend:                 newTrend,
+        scoreHistory:          updatedHistory,
+        graduatedAt:           newGraduatedAt,
+        validationFailureRate: newVfr,
+      };
+    }
+  }
+
+  saveLocalProfile(local);
+  return examProfile;
+};
+
+// ─── Exam-readiness score ─────────────────────────────────────────────────────
+export const computeExamReadiness = (examType, blueprintTopics) => {
+  if (!blueprintTopics || blueprintTopics.length === 0) return null;
+
+  const local       = loadLocalProfile();
+  const examProfile = local[examType];
+  const topicStats  = examProfile?.topics || {};
+
+  let weightedSum   = 0;
+  let coveredWeight = 0;
+
+  const breakdown = blueprintTopics.map(({ name, pct }) => {
+    const weight   = pct / 100;
+    const profile  = topicStats[name];
+    const isGrad   = !!(profile?.graduatedAt);
+
+    const errorRate = profile && profile.attempts > 0
+      ? Math.round((profile.errors / profile.attempts) * 100)
+      : null;
+
+    const accuracy     = isGrad ? 100 : (errorRate !== null ? Math.max(0, 100 - errorRate) : 50);
+    const contribution = accuracy * weight;
+
+    weightedSum   += contribution;
+    if (errorRate !== null || isGrad) coveredWeight += weight;
+
+    return {
+      name, pct, accuracy, errorRate,
+      attempted:   errorRate !== null || isGrad,
+      graduated:   isGrad,
+      graduatedAt: profile?.graduatedAt || null,
+      trend:       profile?.trend        || 'new',
+      scoreHistory: profile?.scoreHistory || [],
+    };
+  });
+
+  const score      = Math.round(weightedSum);
+  const coveredPct = Math.round(coveredWeight * 100);
+
+  let label;
+  if (score >= 80)      label = 'Ready';
+  else if (score >= 65) label = 'Almost Ready';
+  else if (score >= 45) label = 'Getting There';
+  else                  label = 'Not Ready';
+
+  const labelColor =
+    score >= 80 ? 'text-emerald-600' :
+    score >= 65 ? 'text-blue-600'    :
+    score >= 45 ? 'text-amber-600'   :
+                  'text-red-600';
+
+  const labelBg =
+    score >= 80 ? 'bg-emerald-50 border-emerald-200' :
+    score >= 65 ? 'bg-blue-50 border-blue-200'       :
+    score >= 45 ? 'bg-amber-50 border-amber-200'     :
+                  'bg-red-50 border-red-200';
+
+  const graduatedCount = breakdown.filter(t => t.graduated).length;
+
+  return {
+    score, label, labelColor, labelBg,
+    coveredPct, breakdown, graduatedCount,
+    sessions: examProfile?.sessions || 0,
+  };
+};
+
+// ─── UI helpers ───────────────────────────────────────────────────────────────
+export const getProfileSummary = (examType) => {
+  const local       = loadLocalProfile();
+  const examProfile = local[examType];
+  if (!examProfile) return null;
+  const topics = Object.entries(examProfile.topics).map(([name, stats]) => ({
+    name,
+    lastScore:             stats.lastScore,
+    attempts:              stats.attempts,
+    errors:                stats.errors,
+    trend:                 stats.trend,
+    scoreHistory:          stats.scoreHistory  || [],
+    graduatedAt:           stats.graduatedAt   || null,
+    validationFailureRate: stats.validationFailureRate ?? 0,
+    errorRate:             stats.attempts > 0 ? Math.round((stats.errors / stats.attempts) * 100) : 0,
+  })).sort((a, b) => b.errorRate - a.errorRate);
+  return { examType, sessions: examProfile.sessions, lastUpdated: examProfile.lastUpdated, topics };
+};

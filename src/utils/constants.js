@@ -3,6 +3,16 @@ import { ShieldCheck, Award, Zap, Cloud, Server, Building, Briefcase, LineChart,
 export const CURRENT_YEAR = new Date().getFullYear();
 export const YEAR_RANGE = CURRENT_YEAR > 2025 ? `2025-${CURRENT_YEAR}` : `2025`;
 
+// ─── Magic numbers → named constants ────────────────────────────────────────
+export const SECONDS_PER_QUESTION    = 52;
+export const MAX_REVIEW_QUESTIONS    = 15;
+export const FUZZY_MATCH_THRESHOLD   = 0.8;
+export const MAX_QUESTION_LENGTH     = 2000;
+export const MAX_OPTION_LENGTH       = 500;
+export const MAX_TOPIC_LENGTH        = 200;
+export const MAX_DOCSOURCE_LENGTH    = 500;
+export const FETCH_TIMEOUT_MS        = 8000;
+
 // ─── TOPICS must match EXAM_BLUEPRINTS topic names EXACTLY ───────────────────
 // These drive the topic-selection checkboxes AND the adaptive profile keys.
 // If they drift from the blueprint names, the adaptive weighting breaks and

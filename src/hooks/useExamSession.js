@@ -8,7 +8,17 @@
  */
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { EXAM_BLUEPRINTS }          from '../utils/constants';
+import {
+  EXAM_BLUEPRINTS,
+  SECONDS_PER_QUESTION,
+  MAX_REVIEW_QUESTIONS,
+  FUZZY_MATCH_THRESHOLD,
+  MAX_QUESTION_LENGTH,
+  MAX_OPTION_LENGTH,
+  MAX_TOPIC_LENGTH,
+  MAX_DOCSOURCE_LENGTH,
+  FETCH_TIMEOUT_MS,
+} from '../utils/constants';
 import { DEFAULT_GROQ_KEY, generateDynamicQuestions } from '../utils/api';
 import { runValidationPipeline }    from '../utils/agentValidator';
 import {
@@ -20,10 +30,8 @@ import {
   getUserId,
 } from '../utils/agentAdaptive';
 import { isTrackingEnabled } from '../utils/privacyToken';
-
-const BASE_URL = import.meta.env.MODE === 'development'
-  ? '/api'
-  : 'https://splunkmockexam.gtaad-innovations.com/api';
+import { BASE_URL } from '../utils/baseUrl';
+import { normalizeString, isUsingSharedKey, clampString } from '../utils/helpers';
 
 // ─── Helpers (module-level, no state dependency) ──────────────────────────────
 
@@ -49,7 +57,7 @@ async function fetchDocPassages(baseUrl, type, topics) {
       ? topics.map(t => `topics[]=${encodeURIComponent(t)}`).join('&')
       : '';
     const url = `${baseUrl}/retrieve?examType=${encodeURIComponent(type)}${topicParams ? '&' + topicParams : ''}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (res.ok) return (await res.json()).passages || [];
   } catch (err) {
     console.warn('[Layer2] Doc retrieval failed, continuing without RAG:', err.message);
@@ -64,7 +72,7 @@ async function checkAndIncrementUsage(baseUrl) {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ userId }),
-      signal:  AbortSignal.timeout(8000),
+      signal:  AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (res.status === 429) {
       const data = await res.json();
@@ -89,9 +97,8 @@ async function checkAndIncrementUsage(baseUrl) {
 }
 
 function randomizeQuestion(q) {
-  const clamp = (str, max) => str.length > max ? str.slice(0, max) : str;
-  const safeQuestion = clamp(typeof q.question === 'string' ? q.question : JSON.stringify(q?.question || 'Missing question text'), 2000);
-  const safeAnswer   = clamp(typeof q.answer   === 'string' ? q.answer   : JSON.stringify(q?.answer   || 'Missing answer text'), 500);
+  const safeQuestion = clampString(typeof q.question === 'string' ? q.question : JSON.stringify(q?.question || 'Missing question text'), MAX_QUESTION_LENGTH);
+  const safeAnswer   = clampString(typeof q.answer   === 'string' ? q.answer   : JSON.stringify(q?.answer   || 'Missing answer text'), MAX_OPTION_LENGTH);
 
   let safeOptions = q.options;
   if (!Array.isArray(safeOptions)) {
@@ -99,25 +106,24 @@ function randomizeQuestion(q) {
       ? Object.values(safeOptions)
       : [String(safeOptions || 'Option A'), 'Option B', 'Option C', 'Option D'];
   }
-  safeOptions = safeOptions.map(opt => clamp(typeof opt === 'string' ? opt : JSON.stringify(opt || ''), 500));
+  safeOptions = safeOptions.map(opt => clampString(typeof opt === 'string' ? opt : JSON.stringify(opt || ''), MAX_OPTION_LENGTH));
   while (safeOptions.length < 4) safeOptions.push(`Dummy Option ${safeOptions.length + 1}`);
 
   const shuffledOptions = [...safeOptions].sort(() => Math.random() - 0.5);
-  const norm = s => s.trim().replace(/\s+/g, ' ').toLowerCase();
 
   // 1st pass: exact normalize match
-  let correctIndex = shuffledOptions.findIndex(opt => norm(opt) === norm(safeAnswer));
+  let correctIndex = shuffledOptions.findIndex(opt => normalizeString(opt) === normalizeString(safeAnswer));
 
   // 2nd pass: fuzzy — find option with most shared words (handles model rewording)
   if (correctIndex === -1) {
-    const answerWords = new Set(norm(safeAnswer).split(/\s+/));
+    const answerWords = new Set(normalizeString(safeAnswer).split(/\s+/));
     const scores = shuffledOptions.map(opt => {
-      const optWords = norm(opt).split(/\s+/);
+      const optWords = normalizeString(opt).split(/\s+/);
       const shared = optWords.filter(w => answerWords.has(w)).length;
       return shared / Math.max(answerWords.size, optWords.length);
     });
     const best = scores.indexOf(Math.max(...scores));
-    if (scores[best] >= 0.8) {
+    if (scores[best] >= FUZZY_MATCH_THRESHOLD) {
       console.info('[Question] Fuzzy matched answer:', safeAnswer, '→', shuffledOptions[best], `(${Math.round(scores[best]*100)}%)`);
       correctIndex = best;
     } else {
@@ -130,10 +136,10 @@ function randomizeQuestion(q) {
     question:     safeQuestion,
     options:      shuffledOptions,
     correctIndex: correctIndex !== -1 ? correctIndex : 0,
-    answer:       shuffledOptions[correctIndex !== -1 ? correctIndex : 0], // snap answer to matched option text
+    answer:       shuffledOptions[correctIndex !== -1 ? correctIndex : 0],
 
-    topic:        clamp(typeof q.topic     === 'string' ? q.topic     : JSON.stringify(q?.topic     || 'General'), 200),
-    docSource:    clamp(typeof q.docSource === 'string' ? q.docSource : '', 500),
+    topic:        clampString(typeof q.topic     === 'string' ? q.topic     : JSON.stringify(q?.topic     || 'General'), MAX_TOPIC_LENGTH),
+    docSource:    clampString(typeof q.docSource === 'string' ? q.docSource : '', MAX_DOCSOURCE_LENGTH),
   };
 }
 
@@ -242,9 +248,9 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
     }
 
     const groqKey        = snapshotKeys['llama'];
-    const usingSharedKey = !groqKey || groqKey.trim() === '' || groqKey === DEFAULT_GROQ_KEY;
+    const usingShared    = isUsingSharedKey(groqKey);
 
-    if (usingSharedKey && examConfig.aiProvider === 'llama') {
+    if (usingShared && examConfig.aiProvider === 'llama') {
       const usage = await checkAndIncrementUsage(BASE_URL);
       if (!mountedRef.current) return;
       if (!usage.allowed) {
@@ -292,7 +298,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
       return;
     }
 
-    const validationKey = usingSharedKey ? DEFAULT_GROQ_KEY : groqKey;
+    const validationKey = usingShared ? DEFAULT_GROQ_KEY : groqKey;
     const bp            = EXAM_BLUEPRINTS[examType];
 
     const { questions: validatedQuestions, validationLog } = await runValidationPipeline(
@@ -301,7 +307,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
       bp?.level || 'Intermediate-Level',
       validationKey,
       (msg) => safeSetLoadingText(msg),
-      usingSharedKey ? 1 : undefined
+      usingShared ? 1 : undefined
     );
     if (!mountedRef.current) return;
 
@@ -331,7 +337,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
     setUserAnswers({});
     setFlaggedQuestions({});
     setCurrentQuestionIndex(0);
-    setTimeRemaining(randomizedQuestions.length * 52);
+    setTimeRemaining(randomizedQuestions.length * SECONDS_PER_QUESTION);
     safeSetGameState('exam');
   }, [apiKeys, examConfig, examType, buildAgenticPrompt, safeSetLoadingText, safeSetApiError, safeSetGameState]);
 
@@ -360,7 +366,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
       return;
     }
 
-    const originalQuestions = dueItems.slice(0, 15).map(item => ({
+    const originalQuestions = dueItems.slice(0, MAX_REVIEW_QUESTIONS).map(item => ({
       question:     item.question,
       options:      shuffleWithCorrect(item.correct_answer),
       correctIndex: 0,
@@ -384,7 +390,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
       .slice(0, 3)
       .map(([t]) => t);
 
-    const aiCount     = Math.min(originalQuestions.length, 15);
+    const aiCount     = Math.min(originalQuestions.length, MAX_REVIEW_QUESTIONS);
     let   aiQuestions = [];
 
     if (weakTopics.length > 0 && aiCount > 0) {
@@ -396,8 +402,8 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
         customPrompt:   buildAgenticPrompt(examType, aiCount, weakTopics, examConfig.aiProvider),
         passages:       [],
       };
-      const groqKey        = apiKeys['llama'] || DEFAULT_GROQ_KEY;
-      const usingSharedKey = !apiKeys['llama'] || apiKeys['llama'].trim() === '' || apiKeys['llama'] === DEFAULT_GROQ_KEY;
+      const groqKey       = apiKeys['llama'] || DEFAULT_GROQ_KEY;
+      const usingShared   = isUsingSharedKey(apiKeys['llama']);
 
       const { questions: fetched, trace: reviewTrace } = await generateDynamicQuestions(examType, reviewConfig, groqKey);
       if (!mountedRef.current) return;
@@ -411,7 +417,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
           bp?.level || 'Intermediate-Level',
           groqKey,
           (msg) => safeSetLoadingText(msg),
-          usingSharedKey ? 1 : undefined
+          usingShared ? 1 : undefined
         );
         if (!mountedRef.current) return;
         aiQuestions = refined.map(q => {
@@ -439,7 +445,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
     setUserAnswers({});
     setFlaggedQuestions({});
     setCurrentQuestionIndex(0);
-    setTimeRemaining(combined.length * 52);
+    setTimeRemaining(combined.length * SECONDS_PER_QUESTION);
     safeSetGameState('exam');
   }, [examType, examConfig, apiKeys, buildAgenticPrompt, safeSetLoadingText, safeSetApiError, safeSetGameState]);
 

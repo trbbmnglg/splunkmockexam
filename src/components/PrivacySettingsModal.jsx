@@ -27,10 +27,7 @@ import {
   getOrCreateToken, hashToken, buildSignedPayload, clearAllLocalData,
 } from '../utils/privacyToken';
 import { getUserId, clearProfile } from '../utils/agentAdaptive';
-
-const BASE_URL = import.meta.env.MODE === 'development'
-  ? '/api'
-  : 'https://splunkmockexam.gtaad-innovations.com/api';
+import { BASE_URL } from '../utils/baseUrl';
 
 // ── Register token with Worker on first use ───────────────────────────────────
 async function ensureTokenRegistered(userId, token) {

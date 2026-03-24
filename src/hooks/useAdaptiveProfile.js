@@ -25,10 +25,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { EXAM_BLUEPRINTS } from '../utils/constants';
 import { loadProfile, getCommunityStats, getUserId } from '../utils/agentAdaptive';
 import { DEFAULT_GROQ_KEY } from '../utils/api';
-
-const BASE_URL = import.meta.env.MODE === 'development'
-  ? '/api'
-  : 'https://splunkmockexam.gtaad-innovations.com/api';
+import { BASE_URL } from '../utils/baseUrl';
+import { isUsingSharedKey } from '../utils/helpers';
 
 export function useAdaptiveProfile({ gameState, apiKeys }) {
   const [communityStats, setCommunityStats] = useState({});
@@ -59,10 +57,9 @@ export function useAdaptiveProfile({ gameState, apiKeys }) {
 
   // ── Fetch usage info for shared-key users ─────────────────────────────────
   const fetchUsageInfo = useCallback(async () => {
-    const groqKey        = apiKeys['llama'];
-    const usingSharedKey = !groqKey || groqKey.trim() === '' || groqKey === DEFAULT_GROQ_KEY;
+    const groqKey = apiKeys['llama'];
 
-    if (!usingSharedKey) {
+    if (!isUsingSharedKey(groqKey)) {
       setUsageInfo(null);
       return;
     }

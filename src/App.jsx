@@ -22,10 +22,7 @@ import ErrorModal            from './components/ErrorModal';
 import ConfigScreen          from './components/ConfigScreen';
 import ExamScreen            from './components/ExamScreen';
 import ResultsScreen         from './components/ResultsScreen';
-
-const BASE_URL = import.meta.env.MODE === 'development'
-  ? '/api'
-  : 'https://splunkmockexam.gtaad-innovations.com/api';
+import { BASE_URL }          from './utils/baseUrl';
 
 // ── Register privacy token on app load (fire-and-forget) ─────────────────────
 async function ensurePrivacyToken() {

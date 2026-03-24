@@ -5,7 +5,13 @@ import { DEFAULT_GROQ_KEY, createTrace } from './apiConfig';
 import { fetchWithRetry } from './apiFetch';
 import { validateAnswerOptions, filterDocSources, parseQuestionsFromResponse } from './apiValidate';
 
-// ─── getFallbackQuestions ─────────────────────────────────────────────────────
+/**
+ * Generate a set of static fallback questions when AI generation fails.
+ * Pads with placeholder questions if fewer than `targetCount` are available.
+ * @param {string} examType - Exam type key (used in placeholder text).
+ * @param {number} targetCount - Number of questions to return.
+ * @returns {object[]} Array of question objects.
+ */
 export const getFallbackQuestions = (examType, targetCount) => {
   const fallbackQuestions = [
     {
@@ -45,7 +51,15 @@ export const getFallbackQuestions = (examType, targetCount) => {
   return result.slice(0, targetCount);
 };
 
-// ─── generateDynamicQuestions ─────────────────────────────────────────────────
+/**
+ * Generate exam questions by dispatching to the configured AI provider.
+ * Handles Groq (Llama), Perplexity, Gemini, and Qwen/OpenRouter.
+ * Falls back to static questions on failure.
+ * @param {string} examType - Exam type key.
+ * @param {object} config - Exam config with `aiProvider`, `numQuestions`, `customPrompt`, `passages`.
+ * @param {string} apiKey - API key for the selected provider.
+ * @returns {Promise<{ questions: object[], error: string|null, trace: object|null }>}
+ */
 export const generateDynamicQuestions = async (examType, config, apiKey) => {
   const provider    = config.aiProvider;
   const effectiveKey = provider === 'llama' ? (apiKey || DEFAULT_GROQ_KEY) : apiKey;

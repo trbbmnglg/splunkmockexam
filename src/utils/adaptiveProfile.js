@@ -79,7 +79,12 @@ const computeTopicValidationFailures = (validationLog, questions) => {
   return result;
 };
 
-// ─── Load profile — D1 first, localStorage fallback ──────────────────────────
+/**
+ * Load the user's adaptive profile for an exam type.
+ * Tries the remote D1 store first, falls back to localStorage.
+ * @param {string} examType - Exam type key (e.g. "User", "Power User").
+ * @returns {Promise<object>} Profile with `sessions`, `lastUpdated`, and `topics` map.
+ */
 export const loadProfile = async (examType) => {
   const userId = getUserId();
   try {
@@ -119,7 +124,16 @@ export const loadProfile = async (examType) => {
   return examProfile;
 };
 
-// ─── Update profile after exam ────────────────────────────────────────────────
+/**
+ * Update the adaptive profile after an exam session.
+ * Computes per-topic scores, persists to D1 (if tracking enabled) and localStorage,
+ * and records wrong answers for the review bank.
+ * @param {string} examType - Exam type key.
+ * @param {object[]} questions - Array of question objects from the session.
+ * @param {object} userAnswers - Map of questionIndex → selected option index.
+ * @param {object[]} [validationLog=[]] - Validation pipeline log from agentValidator.
+ * @returns {Promise<object>} Updated local exam profile.
+ */
 export const updateProfile = async (examType, questions, userAnswers, validationLog = []) => {
   const userId = getUserId();
   const now    = new Date().toISOString();
@@ -212,7 +226,13 @@ export const updateProfile = async (examType, questions, userAnswers, validation
   return examProfile;
 };
 
-// ─── Exam-readiness score ─────────────────────────────────────────────────────
+/**
+ * Compute a weighted exam-readiness score based on the user's topic performance
+ * against the official blueprint percentages.
+ * @param {string} examType - Exam type key.
+ * @param {{ name: string, pct: number }[]} blueprintTopics - Blueprint topic list with weight percentages.
+ * @returns {object|null} Readiness object with `score`, `label`, `breakdown`, etc., or null if no blueprint.
+ */
 export const computeExamReadiness = (examType, blueprintTopics) => {
   if (!blueprintTopics || blueprintTopics.length === 0) return null;
 
@@ -278,7 +298,11 @@ export const computeExamReadiness = (examType, blueprintTopics) => {
   };
 };
 
-// ─── UI helpers ───────────────────────────────────────────────────────────────
+/**
+ * Build a UI-friendly summary of the user's adaptive profile for a given exam type.
+ * @param {string} examType - Exam type key.
+ * @returns {object|null} Summary with `sessions`, `lastUpdated`, and sorted `topics` array, or null if no data.
+ */
 export const getProfileSummary = (examType) => {
   const local       = loadLocalProfile();
   const examProfile = local[examType];

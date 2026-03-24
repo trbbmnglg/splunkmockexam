@@ -15,6 +15,7 @@ export const CF_WEBHOOK_URL      = getEnvVar('VITE_CF_WEBHOOK_URL', '');
 export const CF_WEBHOOK_TOKEN    = getEnvVar('VITE_CF_WEBHOOK_TOKEN', '');
 export const FEEDBACK_EMAIL      = getEnvVar('VITE_FEEDBACK_EMAIL', '');
 
+/** JSON Schema describing the expected shape of AI-generated question responses. */
 export const QUESTION_SCHEMA = {
   type: 'object',
   properties: {
@@ -43,6 +44,12 @@ export const QUESTION_SCHEMA = {
   additionalProperties: false,
 };
 
+/**
+ * Create a fresh telemetry trace object for an API generation call.
+ * @param {string} provider - AI provider key (e.g. "llama", "gemini").
+ * @param {string} model - Model identifier string.
+ * @returns {object} Mutable trace with token counts, latency, retries, and error fields.
+ */
 export const createTrace = (provider, model) => ({
   provider,
   model,

@@ -3,6 +3,15 @@
  */
 import { loadLocalProfile, SCORE_HISTORY_WINDOW } from './adaptiveStorage';
 
+/**
+ * Build the adaptive prompt context injected into AI generation prompts.
+ * Analyses the user's rolling performance history to redistribute question counts
+ * toward weak topics and away from graduated (mastered) ones.
+ * @param {string} examType - Exam type key.
+ * @param {number} numQuestions - Total questions to generate.
+ * @param {{ name: string, pct: number }[]} blueprintTopics - Blueprint topic list.
+ * @returns {{ adaptivePromptSection: string, adaptiveSummary: object|null }} Prompt text and summary data.
+ */
 export const buildAdaptiveContext = (examType, numQuestions, blueprintTopics) => {
   const local       = loadLocalProfile();
   const examProfile = local[examType];

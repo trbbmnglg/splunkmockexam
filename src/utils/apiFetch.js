@@ -2,6 +2,16 @@
  * HTTP fetch with exponential-backoff retry and 429 handling.
  */
 
+/**
+ * Fetch a URL with exponential-backoff retry and 429 rate-limit handling.
+ * @param {string} url - Request URL.
+ * @param {RequestInit} options - Fetch options (method, headers, body, etc.).
+ * @param {number} [maxRetries=5] - Maximum number of retry attempts.
+ * @param {number} [timeoutMs=30000] - Per-request timeout in milliseconds.
+ * @param {object|null} [trace=null] - Optional mutable trace object to record retry count.
+ * @returns {Promise<object>} Parsed JSON response.
+ * @throws {Error} On non-retryable HTTP errors or after exhausting retries.
+ */
 export const fetchWithRetry = async (url, options, maxRetries = 5, timeoutMs = 30000, trace = null) => {
   const baseDelays = [1000, 2000, 4000, 8000, 16000];
   for (let i = 0; i < maxRetries; i++) {

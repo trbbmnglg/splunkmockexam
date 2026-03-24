@@ -5,6 +5,11 @@ import { isTrackingEnabled } from './privacyToken.js';
 import { BASE_URL } from './baseUrl';
 import { getUserId } from './adaptiveStorage';
 
+/**
+ * Fetch aggregated community performance stats for an exam type from D1.
+ * @param {string} examType - Exam type key.
+ * @returns {Promise<object|null>} Community stats object, or null on failure.
+ */
 export const getCommunityStats = async (examType) => {
   try {
     const res = await fetch(`${BASE_URL}/community?examType=${encodeURIComponent(examType)}`, { signal: AbortSignal.timeout(5000) });
@@ -15,6 +20,12 @@ export const getCommunityStats = async (examType) => {
   return null;
 };
 
+/**
+ * Retrieve the user's wrong-answer bank for review sessions.
+ * @param {string} examType - Exam type key.
+ * @param {boolean} [dueOnly=false] - If true, only return answers due for spaced repetition.
+ * @returns {Promise<{ wrongAnswers: object[], dueCount: number }>} Wrong answers and due count.
+ */
 export const getWrongAnswerBank = async (examType, dueOnly = false) => {
   const userId = getUserId();
   try {
@@ -27,6 +38,11 @@ export const getWrongAnswerBank = async (examType, dueOnly = false) => {
   return { wrongAnswers: [], dueCount: 0 };
 };
 
+/**
+ * Remove reviewed questions from the wrong-answer bank (fire-and-forget).
+ * @param {string} examType - Exam type key.
+ * @param {string[]} questionHashes - Hashes of questions to clear.
+ */
 export const clearReviewedAnswers = (examType, questionHashes) => {
   const userId = getUserId();
   fetch(`${BASE_URL}/wrong-answers`, {
@@ -48,6 +64,12 @@ function hashConcept(str) {
   return Math.abs(hash).toString(36);
 }
 
+/**
+ * Save question concepts to D1 for cross-session duplicate prevention (fire-and-forget).
+ * Skipped if tracking is disabled.
+ * @param {string} examType - Exam type key.
+ * @param {object[]} questions - Array of question objects from the session.
+ */
 export const saveSeenConcepts = (examType, questions) => {
   if (!isTrackingEnabled()) {
     console.info('[Adaptive] Tracking disabled — skipping seen concepts write');
@@ -70,6 +92,11 @@ export const saveSeenConcepts = (examType, questions) => {
   }).catch(err => console.warn('[Adaptive] saveSeenConcepts failed:', err.message));
 };
 
+/**
+ * Fetch recently seen question concepts for deduplication in prompt generation.
+ * @param {string} examType - Exam type key.
+ * @returns {Promise<{ topic: string, hint: string }[]>} Array of seen concept objects, or empty array on failure.
+ */
 export const getRecentSeenConcepts = async (examType) => {
   const userId = getUserId();
   try {

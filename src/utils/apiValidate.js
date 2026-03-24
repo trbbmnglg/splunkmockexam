@@ -4,23 +4,33 @@
  */
 import { DEFAULT_GROQ_KEY } from './apiConfig';
 import { fetchWithRetry } from './apiFetch';
+import { normalizeString } from './helpers';
 
-// ─── validateAnswerOptions ────────────────────────────────────────────────────
+/**
+ * Ensure each question's `answer` field exactly matches one of its `options`.
+ * Falls back to normalized string comparison when an exact match isn't found.
+ * @param {object[]} questions - Array of raw question objects from the AI provider.
+ * @returns {object[]} Questions with corrected `answer` fields where possible.
+ */
 export const validateAnswerOptions = (questions) => {
   return questions.map(q => {
     if (!Array.isArray(q.options) || q.options.length !== 4) return q;
     if (q.options.includes(q.answer)) return q;
-    const normalise = s => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
-    const normAnswer = normalise(q.answer);
-    const matchedOption = q.options.find(o => normalise(o) === normAnswer);
+    const normAnswer = normalizeString(q.answer || '');
+    const matchedOption = q.options.find(o => normalizeString(o || '') === normAnswer);
     if (matchedOption) return { ...q, answer: matchedOption };
     console.warn(`[API] Answer-option mismatch after schema parse: "${q.answer}" not in options`);
     return q;
   });
 };
 
-// ─── filterDocSources ─────────────────────────────────────────────────────────
-// Strips any docSource URL that wasn't actually in the injected passages.
+/**
+ * Strip any `docSource` URL that wasn't present in the injected RAG passages.
+ * Prevents the AI from hallucinating documentation URLs.
+ * @param {object[]} questions - Array of question objects.
+ * @param {object[]} passages - RAG passages that were injected into the prompt.
+ * @returns {object[]} Questions with invalid docSource fields cleared to empty string.
+ */
 export const filterDocSources = (questions, passages) => {
   if (!passages || passages.length === 0) {
     return questions.map(q => ({ ...q, docSource: '' }));
@@ -41,7 +51,13 @@ export const filterDocSources = (questions, passages) => {
   });
 };
 
-// ─── parseQuestionsFromResponse ───────────────────────────────────────────────
+/**
+ * Parse a questions array from an AI provider's response text.
+ * Tries three strategies in order: direct object access, JSON.parse, and regex extraction.
+ * @param {string|object} text - Raw response content (string or pre-parsed object).
+ * @param {object} [trace] - Optional mutable trace to record which parse strategy succeeded.
+ * @returns {object[]|null} Array of question objects, or null if parsing fails entirely.
+ */
 export const parseQuestionsFromResponse = (text, trace) => {
   if (typeof text === 'object' && text !== null) {
     const arr = text.questions ?? (Array.isArray(text) ? text : null);
@@ -81,7 +97,14 @@ export const parseQuestionsFromResponse = (text, trace) => {
   return null;
 };
 
-// ─── validateSubmissionWithAI ─────────────────────────────────────────────────
+/**
+ * Validate a user's exam result submission using AI (Groq/Llama).
+ * Checks whether the pasted evidence supports the claimed pass/fail status.
+ * @param {{ exam: string, status: string, evidence: string, feedback: string }} data - Submission payload.
+ * @param {string} apiKey - Groq API key (falls back to shared key).
+ * @returns {Promise<{ isValid: boolean, confidenceScore: number, reason: string }>}
+ * @throws {Error} If validation call fails.
+ */
 export const validateSubmissionWithAI = async (data, apiKey) => {
   const effectiveKey = apiKey || DEFAULT_GROQ_KEY;
   if (!effectiveKey) {

@@ -10,7 +10,10 @@ export const SCORE_HISTORY_WINDOW = 7;
 export const GRADUATION_WINDOW   = 4;
 export const GRADUATION_THRESHOLD = 80;
 
-// ─── User ID ──────────────────────────────────────────────────────────────────
+/**
+ * Get or create a persistent anonymous user ID stored in localStorage.
+ * @returns {string} User ID string (e.g. "u_abc123_xyz789"), or "anonymous" on storage failure.
+ */
 export const getUserId = () => {
   try {
     let id = localStorage.getItem(USER_ID_KEY);
@@ -24,7 +27,10 @@ export const getUserId = () => {
   }
 };
 
-// ─── localStorage helpers ─────────────────────────────────────────────────────
+/**
+ * Load the full adaptive profile object from localStorage.
+ * @returns {object} Profile keyed by exam type, or empty object on failure.
+ */
 export const loadLocalProfile = () => {
   try {
     const raw = localStorage.getItem(LOCAL_KEY);
@@ -32,6 +38,10 @@ export const loadLocalProfile = () => {
   } catch { return {}; }
 };
 
+/**
+ * Persist the full adaptive profile object to localStorage.
+ * @param {object} profile - Profile object keyed by exam type.
+ */
 export const saveLocalProfile = (profile) => {
   try {
     localStorage.setItem(LOCAL_KEY, JSON.stringify(profile));
@@ -40,6 +50,11 @@ export const saveLocalProfile = (profile) => {
   }
 };
 
+/**
+ * Clear adaptive profile data for a specific exam type (or all types).
+ * Deletes from both the remote D1 store and localStorage.
+ * @param {string} [examType] - Exam type to clear. If omitted, clears all types.
+ */
 export const clearProfile = (examType) => {
   const userId = getUserId();
   fetch(`${BASE_URL}/profile`, {

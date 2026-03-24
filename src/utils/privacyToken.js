@@ -25,13 +25,15 @@ const TRACKING_KEY = 'splunkTrackingEnabled';
 
 /**
  * Returns the existing token from localStorage, or generates + stores a new one.
- * Uses crypto.randomUUID() for 122 bits of entropy.
+ * Uses crypto.getRandomValues() for 256 bits of cryptographic entropy.
  */
 export function getOrCreateToken() {
   try {
     let token = localStorage.getItem(TOKEN_KEY);
     if (!token) {
-      token = crypto.randomUUID() + '-' + crypto.randomUUID(); // ~244 bits
+      const bytes = new Uint8Array(32); // 256 bits
+      crypto.getRandomValues(bytes);
+      token = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
       localStorage.setItem(TOKEN_KEY, token);
     }
     return token;

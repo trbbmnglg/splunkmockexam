@@ -9,6 +9,7 @@ const getEnvVar = (viteKey, fallback = '') => {
 export const DEFAULT_GROQ_KEY    = getEnvVar('VITE_GROQ_TOKEN', '');
 export const CF_WEBHOOK_URL      = getEnvVar('VITE_CF_WEBHOOK_URL', '');
 export const CF_WEBHOOK_TOKEN    = getEnvVar('VITE_CF_WEBHOOK_TOKEN', '');
+export const FEEDBACK_EMAIL      = getEnvVar('VITE_FEEDBACK_EMAIL', '');
 
 export const QUESTION_SCHEMA = {
   type: 'object',

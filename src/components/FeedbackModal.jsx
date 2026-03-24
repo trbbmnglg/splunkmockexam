@@ -1,18 +1,26 @@
 import { useState } from 'react';
 import { ShieldCheck, X, AlertTriangle, CheckCircle, FileText, MessageSquare, Send } from 'lucide-react';
 import { TOPICS } from '../utils/constants';
-import { DEFAULT_GROQ_KEY, CF_WEBHOOK_URL, CF_WEBHOOK_TOKEN, validateSubmissionWithAI } from '../utils/api';
+import { DEFAULT_GROQ_KEY, CF_WEBHOOK_URL, CF_WEBHOOK_TOKEN, FEEDBACK_EMAIL, validateSubmissionWithAI } from '../utils/api';
 
 export default function FeedbackModal({ onClose, apiKey }) {
   const [feedbackState, setFeedbackState] = useState({ loading: false, success: false, error: null });
   const [feedbackForm, setFeedbackForm] = useState({ exam: '', status: 'pass', evidence: '', feedback: '' });
+
+  // Strip HTML tags and limit length to prevent injection via webhook
+  const sanitize = (str) => (str || '').replace(/<[^>]*>/g, '').trim().slice(0, 5000);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setFeedbackState({ loading: true, success: false, error: null });
     try {
       const effectiveKey = apiKey || DEFAULT_GROQ_KEY;
-      const validation = await validateSubmissionWithAI(feedbackForm, effectiveKey);
+      const sanitizedForm = {
+        ...feedbackForm,
+        evidence: sanitize(feedbackForm.evidence),
+        feedback: sanitize(feedbackForm.feedback),
+      };
+      const validation = await validateSubmissionWithAI(sanitizedForm, effectiveKey);
       if (!validation.isValid) {
         setFeedbackState({ loading: false, success: false, error: `Validation Failed: ${validation.reason}` });
         return;
@@ -25,11 +33,11 @@ export default function FeedbackModal({ onClose, apiKey }) {
             ...(CF_WEBHOOK_TOKEN ? { 'Authorization': `Bearer ${CF_WEBHOOK_TOKEN}` } : {}),
           },
           body: JSON.stringify({
-            targetEmail: 'web.rbbjr@gmail.com',
-            exam: feedbackForm.exam,
-            status: feedbackForm.status,
-            evidence: feedbackForm.evidence,
-            feedback: feedbackForm.feedback,
+            targetEmail: FEEDBACK_EMAIL,
+            exam: sanitizedForm.exam,
+            status: sanitizedForm.status,
+            evidence: sanitizedForm.evidence,
+            feedback: sanitizedForm.feedback,
             validationConfidence: validation.confidenceScore,
             timestamp: new Date().toISOString(),
           }),

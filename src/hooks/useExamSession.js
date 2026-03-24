@@ -89,8 +89,9 @@ async function checkAndIncrementUsage(baseUrl) {
 }
 
 function randomizeQuestion(q) {
-  const safeQuestion = typeof q.question === 'string' ? q.question : JSON.stringify(q?.question || 'Missing question text');
-  const safeAnswer   = typeof q.answer   === 'string' ? q.answer   : JSON.stringify(q?.answer   || 'Missing answer text');
+  const clamp = (str, max) => str.length > max ? str.slice(0, max) : str;
+  const safeQuestion = clamp(typeof q.question === 'string' ? q.question : JSON.stringify(q?.question || 'Missing question text'), 2000);
+  const safeAnswer   = clamp(typeof q.answer   === 'string' ? q.answer   : JSON.stringify(q?.answer   || 'Missing answer text'), 500);
 
   let safeOptions = q.options;
   if (!Array.isArray(safeOptions)) {
@@ -98,7 +99,7 @@ function randomizeQuestion(q) {
       ? Object.values(safeOptions)
       : [String(safeOptions || 'Option A'), 'Option B', 'Option C', 'Option D'];
   }
-  safeOptions = safeOptions.map(opt => typeof opt === 'string' ? opt : JSON.stringify(opt || ''));
+  safeOptions = safeOptions.map(opt => clamp(typeof opt === 'string' ? opt : JSON.stringify(opt || ''), 500));
   while (safeOptions.length < 4) safeOptions.push(`Dummy Option ${safeOptions.length + 1}`);
 
   const shuffledOptions = [...safeOptions].sort(() => Math.random() - 0.5);
@@ -116,7 +117,7 @@ function randomizeQuestion(q) {
       return shared / Math.max(answerWords.size, optWords.length);
     });
     const best = scores.indexOf(Math.max(...scores));
-    if (scores[best] >= 0.6) {
+    if (scores[best] >= 0.8) {
       console.info('[Question] Fuzzy matched answer:', safeAnswer, '→', shuffledOptions[best], `(${Math.round(scores[best]*100)}%)`);
       correctIndex = best;
     } else {
@@ -217,7 +218,9 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
 
   // ── handleStartExam ────────────────────────────────────────────────────────
   const handleStartExam = useCallback(async () => {
-    const rawKey     = apiKeys[examConfig.aiProvider];
+    // Snapshot keys at the start so mid-flight changes don't cause mismatches
+    const snapshotKeys = { ...apiKeys };
+    const rawKey     = snapshotKeys[examConfig.aiProvider];
     const currentKey = (examConfig.aiProvider === 'llama' && (!rawKey || !rawKey.trim()))
       ? DEFAULT_GROQ_KEY
       : rawKey;
@@ -227,7 +230,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
       return;
     }
 
-    const groqKey        = apiKeys['llama'];
+    const groqKey        = snapshotKeys['llama'];
     const usingSharedKey = !groqKey || groqKey.trim() === '' || groqKey === DEFAULT_GROQ_KEY;
 
     if (usingSharedKey && examConfig.aiProvider === 'llama') {

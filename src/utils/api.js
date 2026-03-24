@@ -62,8 +62,9 @@ export const fetchWithRetry = async (url, options, maxRetries = 5, timeoutMs = 3
 
       if (response.status === 429) {
         const retryAfter = response.headers.get('retry-after');
-        const waitMs = retryAfter
-          ? Math.ceil(parseFloat(retryAfter) * 1000)
+        const parsedRetry = retryAfter ? parseFloat(retryAfter) : NaN;
+        const waitMs = (Number.isFinite(parsedRetry) && parsedRetry > 0 && parsedRetry <= 300)
+          ? Math.ceil(parsedRetry * 1000)
           : baseDelays[Math.min(i, baseDelays.length - 1)];
         if (trace) trace.retries += 1;
         console.warn(`[API] 429 rate limited — waiting ${(waitMs / 1000).toFixed(1)}s before retry ${i + 1}/${maxRetries}`);
@@ -381,10 +382,10 @@ Do not paraphrase, abbreviate, or reword the answer — copy it exactly.`;
 
     } else if (provider === 'gemini') {
       rawData = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${effectiveKey}`,
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
         {
           method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': effectiveKey },
           body: JSON.stringify({
             contents: [{ parts: [{ text: promptText }] }],
             generationConfig: { responseMimeType: 'application/json', maxOutputTokens: outputTokens },

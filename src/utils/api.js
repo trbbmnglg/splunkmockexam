@@ -19,16 +19,16 @@ export const QUESTION_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          question:  { type: 'string', minLength: 10 },
+          question:  { type: 'string', minLength: 10, maxLength: 2000 },
           options: {
             type: 'array',
-            items: { type: 'string', minLength: 2 },
+            items: { type: 'string', minLength: 2, maxLength: 500 },
             minItems: 4,
             maxItems: 4,
           },
-          answer:    { type: 'string', minLength: 2 },
-          topic:     { type: 'string', minLength: 2 },
-          docSource: { type: 'string' },
+          answer:    { type: 'string', minLength: 2, maxLength: 500 },
+          topic:     { type: 'string', minLength: 2, maxLength: 200 },
+          docSource: { type: 'string', maxLength: 500 },
         },
         required: ['question', 'options', 'answer', 'topic', 'docSource'],
         additionalProperties: false,
@@ -447,10 +447,16 @@ Do not paraphrase, abbreviate, or reword the answer — copy it exactly.`;
     // Sanitize: only show safe error categories to the user — provider error
     // messages may echo back partial request context including API keys.
     const safeMessage = error.name === 'AbortError'
-      ? 'Request timed out.'
-      : error.message?.includes('HTTP error')
-        ? error.message
-        : 'An unexpected error occurred.';
+      ? 'Request timed out — the AI provider may be slow. Try again or switch providers.'
+      : error.message?.includes('HTTP error! status: 401')
+        ? 'Invalid API key — please check your key in Advanced Settings.'
+        : error.message?.includes('HTTP error! status: 403')
+          ? 'Access denied — your API key may lack permissions for this model.'
+          : error.message?.includes('HTTP error! status: 429')
+            ? 'Rate limited — too many requests. Wait a moment and try again.'
+            : error.message?.includes('HTTP error')
+              ? error.message
+              : 'An unexpected error occurred. Check your internet connection and try again.';
 
     return {
       questions: getFallbackQuestions(examType, config.numQuestions),

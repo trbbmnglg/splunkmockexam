@@ -7,8 +7,17 @@ export default function FeedbackModal({ onClose, apiKey }) {
   const [feedbackState, setFeedbackState] = useState({ loading: false, success: false, error: null });
   const [feedbackForm, setFeedbackForm] = useState({ exam: '', status: 'pass', evidence: '', feedback: '' });
 
-  // Strip HTML tags and limit length to prevent injection via webhook
-  const sanitize = (str) => (str || '').replace(/<[^>]*>/g, '').trim().slice(0, 5000);
+  // Multi-pass sanitizer: strip HTML/script tags, event handlers, entities, and limit length
+  const sanitize = (str) => {
+    let s = str || '';
+    s = s.replace(/<script[\s\S]*?<\/script>/gi, '');   // remove script blocks
+    s = s.replace(/<style[\s\S]*?<\/style>/gi, '');      // remove style blocks
+    s = s.replace(/on\w+\s*=\s*["'][^"']*["']/gi, '');  // remove event handlers
+    s = s.replace(/<[^>]*>/g, '');                        // strip remaining HTML tags
+    s = s.replace(/&(?:#x?[0-9a-f]+|[a-z]+);/gi, ' ');  // neutralize HTML entities
+    s = s.replace(/javascript\s*:/gi, '');                // strip javascript: URIs
+    return s.trim().slice(0, 5000);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();

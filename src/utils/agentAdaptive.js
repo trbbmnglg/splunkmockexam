@@ -494,7 +494,9 @@ export const getCommunityStats = async (examType) => {
   try {
     const res = await fetch(`${BASE_URL}/community?examType=${encodeURIComponent(examType)}`, { signal: AbortSignal.timeout(5000) });
     if (res.ok) return await res.json();
-  } catch { /* non-fatal */ }
+  } catch (err) {
+    console.warn('[Adaptive] getCommunityStats failed:', err.message);
+  }
   return null;
 };
 
@@ -504,7 +506,9 @@ export const getWrongAnswerBank = async (examType, dueOnly = false) => {
     const url = `${BASE_URL}/wrong-answers?userId=${encodeURIComponent(userId)}&examType=${encodeURIComponent(examType)}&dueOnly=${dueOnly}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
     if (res.ok) return await res.json();
-  } catch { /* non-fatal */ }
+  } catch (err) {
+    console.warn('[Adaptive] getWrongAnswerBank failed:', err.message);
+  }
   return { wrongAnswers: [], dueCount: 0 };
 };
 
@@ -563,6 +567,8 @@ export const getRecentSeenConcepts = async (examType) => {
       const data = await res.json();
       return data.concepts || [];
     }
-  } catch { /* non-fatal */ }
+  } catch (err) {
+    console.warn('[Adaptive] getRecentSeenConcepts failed:', err.message);
+  }
   return [];
 };

@@ -132,8 +132,8 @@ function randomizeQuestion(q) {
     correctIndex: correctIndex !== -1 ? correctIndex : 0,
     answer:       shuffledOptions[correctIndex !== -1 ? correctIndex : 0], // snap answer to matched option text
 
-    topic:        typeof q.topic     === 'string' ? q.topic     : JSON.stringify(q?.topic     || 'General'),
-    docSource:    typeof q.docSource === 'string' ? q.docSource : '',
+    topic:        clamp(typeof q.topic     === 'string' ? q.topic     : JSON.stringify(q?.topic     || 'General'), 200),
+    docSource:    clamp(typeof q.docSource === 'string' ? q.docSource : '', 500),
   };
 }
 
@@ -159,12 +159,23 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
   const [showGrid,        setShowGrid]        = useState(false);
 
   // ── Refs ───────────────────────────────────────────────────────────────────
-  const timerRef     = useRef(null);
-  const examStateRef = useRef({ examType, questions, userAnswers });
+  const timerRef      = useRef(null);
+  const examStateRef  = useRef({ examType, questions, userAnswers });
+  const mountedRef    = useRef(true);
 
   useEffect(() => {
     examStateRef.current = { examType, questions, userAnswers };
   }, [examType, questions, userAnswers]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  // Safe setState — no-ops after unmount
+  const safeSetLoadingText = useCallback((v) => { if (mountedRef.current) setLoadingText(v); }, []);
+  const safeSetApiError    = useCallback((v) => { if (mountedRef.current) setApiError(v); }, []);
+  const safeSetGameState   = useCallback((v) => { if (mountedRef.current) setGameState(v); }, []);
 
   // ── Timer ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -226,7 +237,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
       : rawKey;
 
     if (!currentKey || currentKey.trim() === '') {
-      setApiError(`Please enter an API key for ${examConfig.aiProvider.toUpperCase()} in the Advanced Settings to generate the exam.`);
+      safeSetApiError(`Please enter an API key for ${examConfig.aiProvider.toUpperCase()} in the Advanced Settings to generate the exam.`);
       return;
     }
 
@@ -235,8 +246,9 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
 
     if (usingSharedKey && examConfig.aiProvider === 'llama') {
       const usage = await checkAndIncrementUsage(BASE_URL);
+      if (!mountedRef.current) return;
       if (!usage.allowed) {
-        setApiError(usage.message);
+        safeSetApiError(usage.message);
         return;
       }
       if (usage.remaining !== null && usage.remaining <= 2) {
@@ -244,13 +256,14 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
       }
     }
 
-    setGameState('loading');
-    setLoadingText('Retrieving relevant Splunk documentation...');
+    safeSetGameState('loading');
+    safeSetLoadingText('Retrieving relevant Splunk documentation...');
 
     const [passages, seenConcepts] = await Promise.all([
       fetchDocPassages(BASE_URL, examType, examConfig.selectedTopics),
       getRecentSeenConcepts(examType),
     ]);
+    if (!mountedRef.current) return;
 
     setDocPassages(passages);
     if (passages.length > 0)     console.log(`[Layer2] Retrieved ${passages.length} doc passages for grounding`);
@@ -266,15 +279,16 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
     );
     const enrichedConfig = { ...examConfig, customPrompt: promptWithDocs, passages };
 
-    setLoadingText(`Generating ${examConfig.numQuestions} dynamic questions using ${examConfig.aiProvider.toUpperCase()}...`);
+    safeSetLoadingText(`Generating ${examConfig.numQuestions} dynamic questions using ${examConfig.aiProvider.toUpperCase()}...`);
 
     const { questions: fetchedQuestions, error, trace: genTrace } = await generateDynamicQuestions(examType, enrichedConfig, currentKey);
+    if (!mountedRef.current) return;
     if (genTrace) console.info('[Trace] Generation:', genTrace);
-    if (error)    setApiError(error);
+    if (error)    safeSetApiError(error);
 
     if (!fetchedQuestions || !Array.isArray(fetchedQuestions) || fetchedQuestions.length === 0) {
-      setApiError(prev => prev || 'The AI generated an invalid or empty set of questions.');
-      setGameState('menu');
+      safeSetApiError(prev => prev || 'The AI generated an invalid or empty set of questions.');
+      safeSetGameState('menu');
       return;
     }
 
@@ -286,9 +300,10 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
       examType,
       bp?.level || 'Intermediate-Level',
       validationKey,
-      (msg) => setLoadingText(msg),
+      (msg) => safeSetLoadingText(msg),
       usingSharedKey ? 1 : undefined
     );
+    if (!mountedRef.current) return;
 
     setLastValidationLog(validationLog);
 
@@ -307,7 +322,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
             ragPassageCount:    passages.length,
           }
         })
-      }).catch(() => {});
+      }).catch(err => console.warn('[Trace] Telemetry POST failed:', err.message));
     }
 
     const randomizedQuestions = validatedQuestions.map(randomizeQuestion);
@@ -317,19 +332,15 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
     setFlaggedQuestions({});
     setCurrentQuestionIndex(0);
     setTimeRemaining(randomizedQuestions.length * 52);
-    setGameState('exam');
-  }, [apiKeys, examConfig, examType, buildAgenticPrompt]);
+    safeSetGameState('exam');
+  }, [apiKeys, examConfig, examType, buildAgenticPrompt, safeSetLoadingText, safeSetApiError, safeSetGameState]);
 
   // ── handleStartReview ──────────────────────────────────────────────────────
   const handleStartReview = useCallback(async () => {
     if (!examType) return;
 
-    // ── Tracking guard — must be on for review sessions to work ──────────────
-    // Review sessions depend on the wrong answer bank in D1.
-    // If tracking is off, wrong answers are never written to D1,
-    // so the bank will always be empty and the session will always fail.
     if (!isTrackingEnabled()) {
-      setApiError(
+      safeSetApiError(
         'Study progress tracking is currently disabled.\n\n' +
         'Review sessions require your wrong answer bank, which is only saved when tracking is enabled.\n\n' +
         'To use review sessions: open Advanced Settings below the exam config and enable tracking, ' +
@@ -338,13 +349,14 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
       return;
     }
 
-    setGameState('loading');
-    setLoadingText('Fetching your wrong answers from review bank...');
+    safeSetGameState('loading');
+    safeSetLoadingText('Fetching your wrong answers from review bank...');
 
     const { wrongAnswers: dueItems } = await getWrongAnswerBank(examType, false);
+    if (!mountedRef.current) return;
     if (!dueItems || dueItems.length === 0) {
-      setApiError('No wrong answers found in your review bank yet. Complete an exam first to build your bank.');
-      setGameState('results');
+      safeSetApiError('No wrong answers found in your review bank yet. Complete an exam first to build your bank.');
+      safeSetGameState('results');
       return;
     }
 
@@ -376,7 +388,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
     let   aiQuestions = [];
 
     if (weakTopics.length > 0 && aiCount > 0) {
-      setLoadingText(`Generating ${aiCount} fresh questions on your weak topics...`);
+      safeSetLoadingText(`Generating ${aiCount} fresh questions on your weak topics...`);
       const reviewConfig = {
         ...examConfig,
         numQuestions:   aiCount,
@@ -388,6 +400,7 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
       const usingSharedKey = !apiKeys['llama'] || apiKeys['llama'].trim() === '' || apiKeys['llama'] === DEFAULT_GROQ_KEY;
 
       const { questions: fetched, trace: reviewTrace } = await generateDynamicQuestions(examType, reviewConfig, groqKey);
+      if (!mountedRef.current) return;
       if (reviewTrace) console.info('[Trace] Review generation:', reviewTrace);
 
       if (fetched?.length > 0) {
@@ -397,9 +410,10 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
           examType,
           bp?.level || 'Intermediate-Level',
           groqKey,
-          (msg) => setLoadingText(msg),
+          (msg) => safeSetLoadingText(msg),
           usingSharedKey ? 1 : undefined
         );
+        if (!mountedRef.current) return;
         aiQuestions = refined.map(q => {
           const safeAnswer = typeof q.answer === 'string' ? q.answer : '';
           let opts = Array.isArray(q.options) ? q.options.map(o => typeof o === 'string' ? o : '') : ['A', 'B', 'C', 'D'];
@@ -414,8 +428,8 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
 
     const combined = [...originalQuestions, ...aiQuestions].sort(() => Math.random() - 0.5);
     if (combined.length === 0) {
-      setApiError('Could not build a review session. Please try again.');
-      setGameState('results');
+      safeSetApiError('Could not build a review session. Please try again.');
+      safeSetGameState('results');
       return;
     }
 
@@ -426,8 +440,8 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
     setFlaggedQuestions({});
     setCurrentQuestionIndex(0);
     setTimeRemaining(combined.length * 52);
-    setGameState('exam');
-  }, [examType, examConfig, apiKeys, buildAgenticPrompt]);
+    safeSetGameState('exam');
+  }, [examType, examConfig, apiKeys, buildAgenticPrompt, safeSetLoadingText, safeSetApiError, safeSetGameState]);
 
   // ── handleCancelToMenu ─────────────────────────────────────────────────────
   const handleCancelToMenu = useCallback(() => {

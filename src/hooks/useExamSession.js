@@ -242,10 +242,15 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
 
     if (weakTopics.length > 0 && aiCount > 0) {
       safeSetLoadingText(`Generating ${aiCount} fresh questions on your weak topics...`);
+
+      // Fetch seen concepts to prevent regenerating questions the user already failed
+      const seenConcepts = await getRecentSeenConcepts(examType);
+      if (!mountedRef.current) return;
+
       const reviewConfig = {
         ...examConfig,
         numQuestions: aiCount, selectedTopics: weakTopics,
-        customPrompt: buildAgenticPrompt(examType, aiCount, weakTopics, examConfig.aiProvider),
+        customPrompt: buildAgenticPrompt(examType, aiCount, weakTopics, examConfig.aiProvider, [], seenConcepts),
         passages: [],
       };
       const groqKey     = apiKeys['llama'] || DEFAULT_GROQ_KEY;

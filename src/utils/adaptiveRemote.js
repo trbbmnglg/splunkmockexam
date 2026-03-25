@@ -53,12 +53,24 @@ export const clearReviewedAnswers = (examType, questionHashes) => {
 };
 
 // ─── Cross-session duplicate detection ───────────────────────────────────────
-function hashConcept(str) {
-  let hash = 0;
+/**
+ * Hash a question string using SHA-256 (async, via Web Crypto API).
+ * Falls back to a simple 32-bit hash if crypto.subtle is unavailable.
+ * @param {string} str - Question text to hash.
+ * @returns {Promise<string>} Base-36 hash string.
+ */
+async function hashConcept(str) {
   const s = str || '';
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const encoded = new TextEncoder().encode(s);
+    const buffer  = await crypto.subtle.digest('SHA-256', encoded);
+    const bytes   = new Uint8Array(buffer);
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  // Fallback: simple 32-bit hash for environments without crypto.subtle
+  let hash = 0;
   for (let i = 0; i < s.length; i++) {
-    const char = s.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
+    hash = ((hash << 5) - hash) + s.charCodeAt(i);
     hash = hash & hash;
   }
   return Math.abs(hash).toString(36);
@@ -70,7 +82,7 @@ function hashConcept(str) {
  * @param {string} examType - Exam type key.
  * @param {object[]} questions - Array of question objects from the session.
  */
-export const saveSeenConcepts = (examType, questions) => {
+export const saveSeenConcepts = async (examType, questions) => {
   if (!isTrackingEnabled()) {
     console.info('[Adaptive] Tracking disabled — skipping seen concepts write');
     return;
@@ -79,11 +91,11 @@ export const saveSeenConcepts = (examType, questions) => {
   const userId = getUserId();
   if (!questions || questions.length === 0) return;
 
-  const concepts = questions.map(q => ({
-    hash:  hashConcept(q.question),
+  const concepts = await Promise.all(questions.map(async q => ({
+    hash:  await hashConcept(q.question),
     hint:  (q.question || '').slice(0, 80),
     topic: q.topic || 'General',
-  }));
+  })));
 
   fetch(`${BASE_URL}/seen-concepts`, {
     method:  'POST',

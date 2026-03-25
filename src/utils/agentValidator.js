@@ -4,7 +4,7 @@
  * Changes from original:
  *   - runValidationPipeline now accepts an optional maxCycles parameter.
  *     Pass 1 for a lightweight single-pass check (used when running on the
- *     shared Groq key). Defaults to MAX_CYCLES (4) for users with own keys.
+ *     shared Groq key). Defaults to scaled cycles (4–6 based on exam size) for users with own keys.
  *   - Both LLM calls use response_format: { type: 'json_object' }.
  *   - The regeneration prompt wraps output in { "replacements": [...] }.
  */
@@ -12,7 +12,7 @@
 import { fetchWithRetry } from './api.js';
 
 const QUALITY_THRESHOLD = 0.10;
-const MAX_CYCLES        = 4;
+const DEFAULT_MAX_CYCLES = 4;
 
 // ─── validateQuestions ────────────────────────────────────────────────────────
 export const validateQuestions = async (questions, examType, blueprintLevel, apiKey) => {
@@ -208,18 +208,31 @@ const mergeReplacements = (questions, replacements) => {
 // ─── runValidationPipeline ────────────────────────────────────────────────────
 // maxCycles: optional override. Pass 1 for a lightweight single-pass check
 // (used when running on the shared Groq key to protect quota).
-// Defaults to MAX_CYCLES (4) for full validation.
+// Defaults to scaled cycles (4–6 based on question count) for full validation.
+/**
+ * Compute validation cycle limit based on question count.
+ * Larger exams get more refinement passes.
+ * @param {number} questionCount - Number of questions to validate.
+ * @returns {number} Max validation cycles (4–6).
+ */
+const computeMaxCycles = (questionCount) => {
+  if (questionCount >= 60) return 6;
+  if (questionCount >= 40) return 5;
+  return DEFAULT_MAX_CYCLES;
+};
+
 export const runValidationPipeline = async (
   questions,
   examType,
   blueprintLevel,
   apiKey,
   onProgress,
-  maxCycles = MAX_CYCLES
+  maxCycles
 ) => {
   let current = [...questions];
   const log   = [];
-  const limit  = Math.min(maxCycles, MAX_CYCLES);
+  const scaledMax = computeMaxCycles(questions.length);
+  const limit     = maxCycles != null ? Math.min(maxCycles, scaledMax) : scaledMax;
 
   for (let cycle = 1; cycle <= limit; cycle++) {
     const cycleLabel = limit === 1

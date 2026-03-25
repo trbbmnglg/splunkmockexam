@@ -7,8 +7,8 @@ const LOCAL_KEY   = 'splunkAdaptiveProfile';
 const USER_ID_KEY = 'splunkUserId';
 
 export const SCORE_HISTORY_WINDOW = 7;
-export const GRADUATION_WINDOW   = 4;
-export const GRADUATION_THRESHOLD = 80;
+export const GRADUATION_WINDOW   = 5;
+export const GRADUATION_THRESHOLD = 85;
 
 /**
  * Get or create a persistent anonymous user ID stored in localStorage.

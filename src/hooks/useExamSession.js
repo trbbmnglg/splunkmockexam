@@ -18,6 +18,7 @@ import {
 import { isTrackingEnabled } from '../utils/privacyToken';
 import { BASE_URL } from '../utils/baseUrl';
 import { normalizeString, isUsingSharedKey } from '../utils/helpers';
+import { getFlagPatterns } from '../utils/questionFlags';
 import { shuffleWithCorrect, fetchDocPassages, checkAndIncrementUsage, randomizeQuestion } from './examSessionHelpers';
 import { useExamTimer } from './useExamTimer';
 
@@ -129,17 +130,19 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
     safeSetGameState('loading');
     safeSetLoadingText('Retrieving relevant Splunk documentation...');
 
-    const [passages, seenConcepts] = await Promise.all([
+    const [passages, seenConcepts, flagPatterns] = await Promise.all([
       fetchDocPassages(BASE_URL, examType, examConfig.selectedTopics),
       getRecentSeenConcepts(examType),
+      getFlagPatterns(examType),
     ]);
     if (!mountedRef.current) return;
 
     setDocPassages(passages);
-    if (passages.length > 0)     console.log(`[Layer2] Retrieved ${passages.length} doc passages for grounding`);
-    if (seenConcepts.length > 0) console.log(`[Dedup] Loaded ${seenConcepts.length} previously seen concepts for exclusion`);
+    if (passages.length > 0)      console.log(`[Layer2] Retrieved ${passages.length} doc passages for grounding`);
+    if (seenConcepts.length > 0)  console.log(`[Dedup] Loaded ${seenConcepts.length} previously seen concepts for exclusion`);
+    if (flagPatterns.length > 0)  console.log(`[Flags] Loaded ${flagPatterns.length} user flag patterns for quality warnings`);
 
-    const promptWithDocs = buildAgenticPrompt(examType, examConfig.numQuestions, examConfig.selectedTopics, examConfig.aiProvider, passages, seenConcepts);
+    const promptWithDocs = buildAgenticPrompt(examType, examConfig.numQuestions, examConfig.selectedTopics, examConfig.aiProvider, passages, seenConcepts, flagPatterns);
     const enrichedConfig = { ...examConfig, customPrompt: promptWithDocs, passages };
 
     safeSetLoadingText(`Generating ${examConfig.numQuestions} dynamic questions using ${examConfig.aiProvider.toUpperCase()}...`);

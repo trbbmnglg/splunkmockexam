@@ -5,6 +5,7 @@
  */
 import { EXAM_BLUEPRINTS, YEAR_RANGE, PRODUCT_CONTEXT_MAP } from './constants';
 import { buildAdaptiveContext } from './agentAdaptive';
+import { buildFlagWarningSection } from './questionFlags';
 
 /** Difficulty guidance keyed by blueprint level. */
 const LEVEL_GUIDANCE = {
@@ -109,9 +110,10 @@ function buildTopicBoundary(type) {
  * @param {string} provider - AI provider key ("llama", "perplexity", "gemini", "qwen").
  * @param {{ topic: string, url: string, text: string }[]} [passages=[]] - RAG doc passages.
  * @param {{ topic: string, hint: string }[]} [seenConcepts=[]] - Previously seen question concepts.
+ * @param {{ topic: string, reason: string, count: number }[]} [flagPatterns=[]] - Aggregated user flag patterns.
  * @returns {string} The fully assembled prompt string.
  */
-export function buildAgenticPrompt(type, num, topics, provider, passages = [], seenConcepts = []) {
+export function buildAgenticPrompt(type, num, topics, provider, passages = [], seenConcepts = [], flagPatterns = []) {
   if (!type) return '';
 
   const bp             = EXAM_BLUEPRINTS[type];
@@ -124,6 +126,7 @@ export function buildAgenticPrompt(type, num, topics, provider, passages = [], s
   const topicDistribution = buildTopicDistribution(topics, num, type, bp);
   const { adaptivePromptSection } = buildAdaptiveContext(type, num, bp?.topics || []);
   const seenConceptsSection       = buildSeenConceptsSection(seenConcepts);
+  const flagWarningSection        = buildFlagWarningSection(flagPatterns);
   const topicBoundary             = buildTopicBoundary(type);
 
   const ragSection = passages.length > 0
@@ -144,7 +147,7 @@ ${difficulty}
 
 TOPIC DISTRIBUTION — follow these counts exactly:
 ${topicDistribution}
-${adaptivePromptSection}
+${adaptivePromptSection}${flagWarningSection}
 ${ragSection}${seenConceptsSection}
 
 STRICT TOPIC BOUNDARY — this is the most important rule:

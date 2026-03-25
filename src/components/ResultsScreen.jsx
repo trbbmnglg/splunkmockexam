@@ -312,6 +312,9 @@ function ResultsTab({ topicsToReview, examType, bp, profileVersion, setProfileVe
 
 // ─── Tab 2: Review ────────────────────────────────────────────────────────────
 function ReviewTab({ wrongAnswers, userAnswers, bp, groqKey, examType }) {
+  const [flagsUsed, setFlagsUsed] = useState(0);
+  const flagBudget = 3 - flagsUsed;
+
   if (wrongAnswers.length === 0) {
     return (
       <div className="p-10 text-center">
@@ -328,10 +331,15 @@ function ReviewTab({ wrongAnswers, userAnswers, bp, groqKey, examType }) {
           {wrongAnswers.length} missed question{wrongAnswers.length !== 1 ? 's' : ''} — click{' '}
           <span className="font-semibold text-indigo-600">Why?</span> for an AI explanation
         </p>
-        <div className="hidden sm:flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold px-3 py-1.5 rounded-lg flex-shrink-0 ml-3">
+        <div className="hidden sm:flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg flex-shrink-0 ml-3 bg-indigo-50 border border-indigo-200 text-indigo-700">
           <Zap className="w-3.5 h-3.5" /> AI explanations
         </div>
       </div>
+      {flagBudget > 0 && (
+        <p className="text-xs text-slate-400">
+          {flagBudget} flag{flagBudget !== 1 ? 's' : ''} remaining this session
+        </p>
+      )}
       {wrongAnswers.map(({ q, idx }) => (
         <WrongAnswerCard
           key={idx}
@@ -346,6 +354,9 @@ function ReviewTab({ wrongAnswers, userAnswers, bp, groqKey, examType }) {
           apiKey={groqKey}
           docSource={q.docSource || ''}
           timesMissed={q.times_missed || 1}
+          questionHash={simpleHash(q.question)}
+          flagBudget={flagBudget}
+          onFlagUsed={() => setFlagsUsed(v => v + 1)}
         />
       ))}
     </div>

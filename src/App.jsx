@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Shield } from 'lucide-react';
+import { Shield, CheckCircle, AlertTriangle } from 'lucide-react';
 
 import { DEFAULT_GROQ_KEY }    from './utils/api';
 import { getOrCreateToken, hashToken } from './utils/privacyToken';
@@ -39,7 +39,39 @@ async function ensurePrivacyToken() {
   } catch { /* non-fatal — modal re-registers on open */ }
 }
 
-export default function App() {
+export default function App({ transferState }) {
+  // ── Profile transfer toast & collision modal ────────────────────────────
+  const [showTransferToast, setShowTransferToast] = useState(
+    () => transferState?.collision === false
+  );
+  const [transferCollision, setTransferCollision] = useState(
+    () => transferState?.collision === true ? transferState : null
+  );
+
+  // Auto-dismiss toast after 4 seconds
+  useEffect(() => {
+    if (!showTransferToast) return;
+    const timer = setTimeout(() => setShowTransferToast(false), 4000);
+    return () => clearTimeout(timer);
+  }, [showTransferToast]);
+
+  const handleTransferChoice = useCallback((choice) => {
+    if (!transferCollision) return;
+    if (choice === 'incoming') {
+      try {
+        localStorage.setItem('splunkUserId', transferCollision.incomingUserId);
+        localStorage.removeItem('splunkAdaptiveProfile');
+        console.info('[QR] Profile transferred — replaced existing userId');
+      } catch {
+        console.warn('[QR] Could not write userId to localStorage');
+      }
+      setShowTransferToast(true);
+    }
+    // choice === 'keep' → do nothing, existing profile stays
+    setTransferCollision(null);
+    if (choice === 'incoming') window.location.reload();
+  }, [transferCollision]);
+
   // ── Consent ───────────────────────────────────────────────────────────────
   const [hasConsented, setHasConsented] = useState(
     () => localStorage.getItem('splunkExamConsent') === 'true'
@@ -149,6 +181,51 @@ export default function App() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-pink-200 selection:text-pink-900 flex flex-col">
+
+      {/* ── Transfer success toast ──────────────────────────────────────── */}
+      {showTransferToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] animate-fade-in">
+          <div className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium">
+            <CheckCircle className="w-4 h-4 shrink-0" />
+            Profile transferred — your study progress has been loaded.
+          </div>
+        </div>
+      )}
+
+      {/* ── Transfer collision modal ────────────────────────────────────── */}
+      {transferCollision && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-6 h-6 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-bold text-lg text-slate-900">Existing Study Data Found</h3>
+                <p className="text-sm text-slate-600 mt-1">
+                  This device already has study progress. A new profile was shared via QR code. What would you like to do?
+                </p>
+              </div>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+              Choosing "Use incoming profile" will replace your current data on this device.
+              Your current progress cannot be recovered afterward.
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleTransferChoice('keep')}
+                className="flex-1 px-4 py-2.5 text-sm font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                Keep current
+              </button>
+              <button
+                onClick={() => handleTransferChoice('incoming')}
+                className="flex-1 px-4 py-2.5 text-sm font-semibold rounded-lg bg-pink-600 text-white hover:bg-pink-700 transition-colors"
+              >
+                Use incoming profile
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {!hasConsented && <ConsentModal onConsent={() => setHasConsented(true)} />}
 

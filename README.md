@@ -26,6 +26,10 @@ React SPA (Vite + Tailwind CSS)
 ├── Cloudflare Workers (API backend)
 │   ├── D1 (SQLite — profiles, wrong answers, flags, seen concepts)
 │   └── Vectorize (RAG document embeddings)
+├── RAG Pipeline
+│   ├── bge-small-en-v1.5 (384-dim embedding via Workers AI)
+│   ├── Cloudflare Vectorize (cosine similarity, top-15 candidates)
+│   └── Jina Reranker v3 (re-scores → top-5, 8s timeout, graceful fallback)
 └── LLM Providers
     ├── Groq (Llama 3.3 70B) — default, free tier included
     ├── Perplexity (Sonar Pro) — live web search grounding
@@ -48,6 +52,27 @@ Build Prompt → LLM Generation → Self-Correcting Validation → Randomize →
      │ • User flag warnings               │
      └────────────────────────────────────┘
 ```
+
+### RAG Retrieval Pipeline
+
+3-step retrieval pipeline that grounds every question and explanation in official Splunk documentation:
+
+```
+Query ("Splunk {cert}: {topics}")
+  │
+  ├─ Step 1: Embed — bge-small-en-v1.5 (384-dim, Workers AI)
+  │   └─ Vectorize cosine search → top-15 candidates (score > 0.5)
+  │      Cert-filtered first, unfiltered fallback if < 3 results
+  │
+  ├─ Step 2: Rerank — Jina Reranker v3 (jina.ai API)
+  │   └─ Re-scores 15 candidates for contextual relevance → top-5
+  │      8-second timeout, graceful fallback to Vectorize top-5
+  │
+  └─ Step 3: Inject — top-5 passages into generation prompt
+      Each question includes a docSource URL back to the source passage
+```
+
+**Ingestion** (`scripts/ingest.js`): Scrapes official Splunk docs (help.splunk.com + docs.splunk.com), extracts content via Heretto DITA selectors, chunks at 200 words with 50-word overlap, embeds via Workers AI, and uploads to Vectorize. Idempotent — already-ingested URLs are auto-skipped.
 
 ### Adaptive Learning System
 
@@ -82,7 +107,7 @@ RAG-grounded explanations with depth escalation:
 | 2nd | Detailed | Underlying mechanism, contrast choices, real-world consequences |
 | 3rd+ | Deep | First-principles explanation, analogy, address specific misconception |
 
-Retrieves relevant Splunk doc passage via Vectorize before generating. Falls back to LLM-only if RAG unavailable.
+Retrieves relevant Splunk doc passage via the Vectorize → Jina Reranker pipeline before generating. Falls back to LLM-only if RAG unavailable.
 
 ### Cross-Session Dedup
 
@@ -219,6 +244,8 @@ src/
 | Backend | Cloudflare Workers |
 | Database | Cloudflare D1 (SQLite) |
 | Vector Search | Cloudflare Vectorize |
+| Embedding Model | bge-small-en-v1.5 (384-dim, via Workers AI) |
+| Reranker | Jina Reranker v3 (contextual re-scoring) |
 | LLM Providers | Groq, Perplexity, Google Gemini, OpenRouter |
 | Encryption | Web Crypto API (AES-GCM, SHA-256, PBKDF2) |
 

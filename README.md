@@ -29,7 +29,7 @@ React SPA (Vite + Tailwind CSS)
 ├── RAG Pipeline
 │   ├── bge-small-en-v1.5 (384-dim embedding via Workers AI)
 │   ├── Cloudflare Vectorize (cosine similarity, top-15 candidates)
-│   └── Jina Reranker v3 (re-scores → top-5, 8s timeout, graceful fallback)
+│   └── Jina Reranker v3 (re-scores → top-5, 5s timeout, graceful fallback)
 └── LLM Providers
     ├── Groq (Llama 3.3 70B) — default, free tier included
     ├── Perplexity (Sonar Pro) — live web search grounding

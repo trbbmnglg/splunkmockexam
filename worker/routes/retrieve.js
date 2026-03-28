@@ -135,7 +135,7 @@ export async function handleRetrieve(request, env, ok, err) {
             top_n:            TOP_K_RERANKED,
             return_documents: false,
           }),
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(5000),
         });
 
         console.log(`[Retrieve] Jina response status: ${jinaResponse.status}`);

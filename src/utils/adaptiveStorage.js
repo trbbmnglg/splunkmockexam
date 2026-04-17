@@ -2,6 +2,7 @@
  * Adaptive profile: user ID, localStorage helpers, clear/reset.
  */
 import { BASE_URL } from './baseUrl';
+import { signedBody } from './privacyToken.js';
 
 const LOCAL_KEY   = 'splunkAdaptiveProfile';
 const USER_ID_KEY = 'splunkUserId';
@@ -57,11 +58,14 @@ export const saveLocalProfile = (profile) => {
  */
 export const clearProfile = (examType) => {
   const userId = getUserId();
-  fetch(`${BASE_URL}/profile`, {
-    method:  'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ userId, examType })
-  }).catch(() => {});
+  const body = signedBody(userId, { examType });
+  if (body) {
+    fetch(`${BASE_URL}/profile`, {
+      method:  'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    }).catch(() => {});
+  }
   const local = loadLocalProfile();
   if (examType) delete local[examType];
   else Object.keys(local).forEach(k => delete local[k]);

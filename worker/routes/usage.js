@@ -6,22 +6,24 @@
  *   → Shape: { count, limit, remaining, resetAt, exceeded }
  *
  * POST /api/usage
- *   → Body: { userId }
- *   → Checks BOTH userId and IP — whichever is higher wins
- *   → Increments both on success
- *   → Returns 429 if either hits the limit
+ *   → Body: { userId, token, timestamp }  (signed-payload contract)
+ *   → Requires a valid privacy token — otherwise an unauthenticated caller
+ *     could DoS any victim by pushing their counter to the daily limit.
+ *   → Checks BOTH userId and IP — whichever is higher wins.
+ *   → Increments both on success.
+ *   → Returns 429 if either hits the limit.
  *
  * Bypass gap analysis:
- *   - Clear localStorage → new userId, but IP still tracked → blocked after 10
- *   - Incognito window   → new userId, same IP             → blocked after 10
- *   - Different browser  → new userId, same IP             → blocked after 10
- *   - VPN/proxy          → new IP, same userId             → blocked after 10
+ *   - Clear localStorage → new userId + new token, IP still tracked → blocked after 10
+ *   - VPN/proxy          → new IP, same userId                      → blocked after 10
  *   - Both               → genuinely gets a fresh 10 (acceptable, requires effort)
  *
  * Owner bypass:
  *   Set USAGE_BYPASS_IDS env var in Cloudflare dashboard (comma-separated userIds).
  *   Bypassed users skip ALL checks and D1 writes.
  */
+
+import { verifyAuthedBody, hashIp } from './_auth.js';
 
 const DAILY_LIMIT = 10;
 
@@ -38,17 +40,6 @@ function nextMidnightUTC() {
     0, 0, 0
   ));
   return midnight.toISOString();
-}
-
-function hashIp(ip) {
-  if (!ip || ip === 'unknown') return null;
-  let hash = 0;
-  for (let i = 0; i < ip.length; i++) {
-    const char = ip.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return 'ip_' + Math.abs(hash).toString(36);
 }
 
 function getClientIp(request) {
@@ -103,7 +94,7 @@ async function getUsage(request, env, ok, err) {
   }
 
   const today  = todayUTC();
-  const ipHash = hashIp(getClientIp(request));
+  const ipHash = await hashIp(getClientIp(request));
 
   const [userCount, ipCount] = await Promise.all([
     getCount(env, userId, today),
@@ -121,8 +112,11 @@ async function incrementUsage(request, env, ok, err) {
   try { body = await request.json(); }
   catch { return err('Invalid JSON body', 400); }
 
-  const { userId } = body;
-  if (!userId) return err('userId is required', 400);
+  // Require a signed payload — otherwise any unauthenticated caller could
+  // burn a victim's daily quota to DoS them.
+  const auth = await verifyAuthedBody(body, env);
+  if (!auth.ok) return err(auth.message, auth.status);
+  const userId = auth.userId;
 
   if (isBypassed(userId, env)) {
     return ok({ count: 0, limit: DAILY_LIMIT, remaining: DAILY_LIMIT, resetAt: nextMidnightUTC(), exceeded: false, bypassed: true });
@@ -130,9 +124,8 @@ async function incrementUsage(request, env, ok, err) {
 
   const today   = todayUTC();
   const now     = new Date().toISOString();
-  const ipHash  = hashIp(getClientIp(request));
+  const ipHash  = await hashIp(getClientIp(request));
   const resetAt = nextMidnightUTC();
-  const corsHeaders = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
 
   // Check both before incrementing
   const [userCount, ipCount] = await Promise.all([
@@ -141,7 +134,7 @@ async function incrementUsage(request, env, ok, err) {
   ]);
 
   if (userCount >= DAILY_LIMIT || (ipHash && ipCount >= DAILY_LIMIT)) {
-    return new Response(JSON.stringify({ error: buildLimitError(resetAt) }), { status: 429, headers: corsHeaders });
+    return err(buildLimitError(resetAt), 429);
   }
 
   // Both under limit — increment both
@@ -152,5 +145,5 @@ async function incrementUsage(request, env, ok, err) {
   const count     = Math.max(userCount + 1, ipHash ? ipCount + 1 : 0);
   const remaining = Math.max(0, DAILY_LIMIT - count);
 
-  return new Response(JSON.stringify({ count, limit: DAILY_LIMIT, remaining, resetAt, exceeded: false }), { status: 200, headers: corsHeaders });
+  return ok({ count, limit: DAILY_LIMIT, remaining, resetAt, exceeded: false });
 }

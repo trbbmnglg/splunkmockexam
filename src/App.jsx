@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Shield, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Shield } from 'lucide-react';
 
 import { DEFAULT_GROQ_KEY }    from './utils/api';
 import { getOrCreateToken, hashToken } from './utils/privacyToken';
@@ -10,18 +10,20 @@ import { useExamSession }     from './hooks/useExamSession';
 import { useAdaptiveProfile } from './hooks/useAdaptiveProfile';
 import { useKeyboard }        from './hooks/useKeyboard';
 
-import ConsentModal          from './components/ConsentModal';
-import FeedbackModal         from './components/FeedbackModal';
-import AppFooter             from './components/AppFooter';
-import AppInfoDrawer         from './components/AppInfoDrawer';
-import PrivacySettingsModal  from './components/PrivacySettingsModal';
-import MenuScreen            from './components/MenuScreen';
-import LoadingScreen         from './components/LoadingScreen';
-import ErrorModal            from './components/ErrorModal';
-import ConfigScreen          from './components/ConfigScreen';
-import ExamScreen            from './components/ExamScreen';
-import ResultsScreen         from './components/ResultsScreen';
-import { BASE_URL }          from './utils/baseUrl';
+import ConsentModal             from './components/ConsentModal';
+import FeedbackModal            from './components/FeedbackModal';
+import AppFooter                from './components/AppFooter';
+import AppInfoDrawer            from './components/AppInfoDrawer';
+import PrivacySettingsModal     from './components/PrivacySettingsModal';
+import MenuScreen               from './components/MenuScreen';
+import LoadingScreen            from './components/LoadingScreen';
+import ErrorModal               from './components/ErrorModal';
+import ConfigScreen             from './components/ConfigScreen';
+import ExamScreen               from './components/ExamScreen';
+import ResultsScreen            from './components/ResultsScreen';
+import TransferCollisionModal   from './components/modals/TransferCollisionModal';
+import { useToast }             from './components/Toast';
+import { BASE_URL }             from './utils/baseUrl';
 
 // ── Register privacy token on app load (fire-and-forget) ─────────────────────
 async function ensurePrivacyToken() {
@@ -40,20 +42,23 @@ async function ensurePrivacyToken() {
 }
 
 export default function App({ transferState }) {
-  // ── Profile transfer toast & collision modal ────────────────────────────
-  const [showTransferToast, setShowTransferToast] = useState(
-    () => transferState?.collision === false
-  );
+  // ── Toast + profile-transfer collision state ──────────────────────────────
+  const { push: toast, ToastContainer } = useToast();
+
   const [transferCollision, setTransferCollision] = useState(
     () => transferState?.collision === true ? transferState : null
   );
 
-  // Auto-dismiss toast after 4 seconds
+  // Fire the "Profile transferred" toast once on mount if the router flagged
+  // a successful non-colliding transfer. No local setState/setTimeout — the
+  // toast hook manages auto-dismissal.
   useEffect(() => {
-    if (!showTransferToast) return;
-    const timer = setTimeout(() => setShowTransferToast(false), 4000);
-    return () => clearTimeout(timer);
-  }, [showTransferToast]);
+    if (transferState?.collision === false) {
+      toast({ type: 'success', message: 'Profile transferred — your study progress has been loaded.' });
+    }
+    // Intentionally only on mount — transferState is a hydration-time prop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleTransferChoice = useCallback((choice) => {
     if (!transferCollision) return;
@@ -61,11 +66,9 @@ export default function App({ transferState }) {
       try {
         localStorage.setItem('splunkUserId', transferCollision.incomingUserId);
         localStorage.removeItem('splunkAdaptiveProfile');
-        console.info('[QR] Profile transferred — replaced existing userId');
       } catch {
         console.warn('[QR] Could not write userId to localStorage');
       }
-      setShowTransferToast(true);
     }
     // choice === 'keep' → do nothing, existing profile stays
     setTransferCollision(null);
@@ -180,51 +183,13 @@ export default function App({ transferState }) {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-pink-200 selection:text-pink-900 flex flex-col">
+    <div className="min-h-screen bg-accenture-gray-off-white font-sans selection:bg-accenture-purple-lightest selection:text-accenture-purple-darkest flex flex-col">
 
-      {/* ── Transfer success toast ──────────────────────────────────────── */}
-      {showTransferToast && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] animate-fade-in">
-          <div className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium">
-            <CheckCircle className="w-4 h-4 shrink-0" />
-            Profile transferred — your study progress has been loaded.
-          </div>
-        </div>
-      )}
-
-      {/* ── Transfer collision modal ────────────────────────────────────── */}
       {transferCollision && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-6 h-6 text-amber-500 shrink-0 mt-0.5" />
-              <div>
-                <h3 className="font-bold text-lg text-slate-900">Existing Study Data Found</h3>
-                <p className="text-sm text-slate-600 mt-1">
-                  This device already has study progress. A new profile was shared via QR code. What would you like to do?
-                </p>
-              </div>
-            </div>
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
-              Choosing "Use incoming profile" will replace your current data on this device.
-              Your current progress cannot be recovered afterward.
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => handleTransferChoice('keep')}
-                className="flex-1 px-4 py-2.5 text-sm font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors"
-              >
-                Keep current
-              </button>
-              <button
-                onClick={() => handleTransferChoice('incoming')}
-                className="flex-1 px-4 py-2.5 text-sm font-semibold rounded-lg bg-pink-600 text-white hover:bg-pink-700 transition-colors"
-              >
-                Use incoming profile
-              </button>
-            </div>
-          </div>
-        </div>
+        <TransferCollisionModal
+          onKeep={() => handleTransferChoice('keep')}
+          onUseIncoming={() => handleTransferChoice('incoming')}
+        />
       )}
 
       {!hasConsented && <ConsentModal onConsent={() => setHasConsented(true)} />}
@@ -239,31 +204,33 @@ export default function App({ transferState }) {
         <PrivacySettingsModal onClose={() => setShowPrivacyModal(false)} />
       )}
 
-      <nav className="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-50">
+      {!focusMode && (
+      <nav className="bg-accenture-black text-white p-4 shadow-md sticky top-0 z-50">
         <div className="max-w-6xl mx-auto flex items-center justify-between font-bold text-xl">
           <div className="flex items-center">
-            <span className="text-pink-500 mr-1">&gt;</span> Splunk <span className="font-light ml-1 text-slate-300">MockTest</span>
+            <span className="text-accenture-purple mr-1">&gt;</span> Splunk <span className="font-light ml-1 text-accenture-gray-light">MockTest</span>
           </div>
           <div className="flex items-center gap-2">
             {/* Privacy button */}
             <button
               onClick={() => setShowPrivacyModal(true)}
-              className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-700 border border-slate-700 hover:border-slate-500"
+              className="flex items-center gap-1.5 text-xs font-semibold text-accenture-gray-light hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-accenture-purple-darkest border border-accenture-purple-darkest hover:border-accenture-purple"
               title="Privacy & Data Settings"
             >
-              <Shield className="w-3.5 h-3.5" />
+              <Shield className="w-3.5 h-3.5" aria-hidden="true" />
               <span className="hidden sm:inline">Privacy</span>
             </button>
             {/* About button */}
             <button
               onClick={() => setShowInfoDrawer(true)}
-              className="text-xs font-semibold text-slate-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-700 border border-slate-700 hover:border-slate-500"
+              className="text-xs font-semibold text-accenture-gray-light hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-accenture-purple-darkest border border-accenture-purple-darkest hover:border-accenture-purple"
             >
               About this tool
             </button>
           </div>
         </div>
       </nav>
+      )}
 
       <main className="flex-grow max-w-6xl mx-auto w-full px-4 py-8 md:py-12">
 
@@ -347,6 +314,7 @@ export default function App({ transferState }) {
       </main>
 
       <AppFooter gameState={session.gameState} />
+      <ToastContainer />
     </div>
   );
 }

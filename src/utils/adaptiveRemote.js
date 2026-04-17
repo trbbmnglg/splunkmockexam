@@ -1,7 +1,12 @@
 /**
  * Remote D1 operations: community stats, wrong answers, seen concepts.
+ *
+ * All user-scoped writes use signedBody() + all user-scoped GETs use
+ * authHeaders() — the Worker verifies ownership via the privacy token
+ * before touching D1. Community stats is the one exception (aggregate,
+ * anonymized — intentionally public).
  */
-import { isTrackingEnabled } from './privacyToken.js';
+import { isTrackingEnabled, signedBody, authHeaders } from './privacyToken.js';
 import { BASE_URL } from './baseUrl';
 import { getUserId } from './adaptiveStorage';
 
@@ -28,9 +33,11 @@ export const getCommunityStats = async (examType) => {
  */
 export const getWrongAnswerBank = async (examType, dueOnly = false) => {
   const userId = getUserId();
+  const headers = authHeaders();
+  if (!headers) return { wrongAnswers: [], dueCount: 0 };
   try {
     const url = `${BASE_URL}/wrong-answers?userId=${encodeURIComponent(userId)}&examType=${encodeURIComponent(examType)}&dueOnly=${dueOnly}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
     if (res.ok) return await res.json();
   } catch (err) {
     console.warn('[Adaptive] getWrongAnswerBank failed:', err.message);
@@ -45,10 +52,12 @@ export const getWrongAnswerBank = async (examType, dueOnly = false) => {
  */
 export const clearReviewedAnswers = (examType, questionHashes) => {
   const userId = getUserId();
+  const body = signedBody(userId, { examType, questionHashes });
+  if (!body) return;
   fetch(`${BASE_URL}/wrong-answers`, {
     method:  'DELETE',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ userId, examType, questionHashes })
+    body:    JSON.stringify(body)
   }).catch(err => console.warn('[Adaptive] Clear reviewed answers failed:', err.message));
 };
 
@@ -97,10 +106,12 @@ export const saveSeenConcepts = async (examType, questions) => {
     topic: q.topic || 'General',
   })));
 
+  const body = signedBody(userId, { examType, concepts });
+  if (!body) return;
   fetch(`${BASE_URL}/seen-concepts`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ userId, examType, concepts }),
+    body:    JSON.stringify(body),
   }).catch(err => console.warn('[Adaptive] saveSeenConcepts failed:', err.message));
 };
 
@@ -111,10 +122,12 @@ export const saveSeenConcepts = async (examType, questions) => {
  */
 export const getRecentSeenConcepts = async (examType) => {
   const userId = getUserId();
+  const headers = authHeaders();
+  if (!headers) return [];
   try {
     const res = await fetch(
       `${BASE_URL}/seen-concepts?userId=${encodeURIComponent(userId)}&examType=${encodeURIComponent(examType)}&limit=50`,
-      { signal: AbortSignal.timeout(5000) }
+      { headers, signal: AbortSignal.timeout(5000) }
     );
     if (res.ok) {
       const data = await res.json();

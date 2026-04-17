@@ -10,6 +10,8 @@
  * Rate limiting: max 5 submissions per IP per day (tracked in D1).
  */
 
+import { hashIp } from './_auth.js';
+
 export async function handleWebhook(request, env, ok, err) {
   if (request.method !== 'POST') {
     return err('Method not allowed', 405);
@@ -35,6 +37,7 @@ export async function handleWebhook(request, env, ok, err) {
 
   const submittedAt = timestamp || new Date().toISOString();
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const ipHash = (await hashIp(ip)) || 'ip_unknown';
 
   try {
     // ── Rate limit: max 5 submissions per IP per day ──────────────────────
@@ -42,7 +45,7 @@ export async function handleWebhook(request, env, ok, err) {
     const rateLimitRow = await env.DB.prepare(`
       SELECT COUNT(*) as count FROM feedback_submissions
       WHERE ip_hash = ? AND DATE(submitted_at) = ?
-    `).bind(simpleHash(ip), today).first();
+    `).bind(ipHash, today).first();
 
     if (rateLimitRow && rateLimitRow.count >= 5) {
       return err('Rate limit reached: max 5 feedback submissions per day', 429);
@@ -59,7 +62,7 @@ export async function handleWebhook(request, env, ok, err) {
       evidence.slice(0, 4000),   // cap evidence length
       feedback.slice(0, 2000),
       validationConfidence ?? null,
-      simpleHash(ip),
+      ipHash,
       submittedAt
     ).run();
 
@@ -117,13 +120,3 @@ async function forwardViaResend(apiKey, toEmail, data) {
   }
 }
 
-// Simple hash for IP anonymization (same as wrongAnswers.js)
-function simpleHash(str) {
-  let hash = 0;
-  for (let i = 0; i < Math.min(str.length, 200); i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(36);
-}

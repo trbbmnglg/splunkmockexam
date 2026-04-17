@@ -15,7 +15,7 @@ import {
   updateProfile, getWrongAnswerBank, clearReviewedAnswers,
   saveSeenConcepts, getRecentSeenConcepts, getUserId,
 } from '../utils/agentAdaptive';
-import { isTrackingEnabled } from '../utils/privacyToken';
+import { isTrackingEnabled, signedBody } from '../utils/privacyToken';
 import { BASE_URL } from '../utils/baseUrl';
 import { normalizeString, isUsingSharedKey } from '../utils/helpers';
 import { getFlagPatterns } from '../utils/questionFlags';
@@ -170,20 +170,23 @@ export function useExamSession({ examType, examConfig, apiKeys, buildAgenticProm
     setLastValidationLog(validationLog);
 
     if (genTrace) {
-      fetch(`${BASE_URL}/traces`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: getUserId(), examType,
-          trace: {
-            ...genTrace,
-            questionCount:      validatedQuestions.length,
-            validationCycles:   validationLog.length,
-            validationFailures: validationLog.reduce((s, c) => s + c.failureCount, 0),
-            ragPassageCount:    passages.length,
-          }
-        })
-      }).catch(err => console.warn('[Trace] Telemetry POST failed:', err.message));
+      const traceBody = signedBody(getUserId(), {
+        examType,
+        trace: {
+          ...genTrace,
+          questionCount:      validatedQuestions.length,
+          validationCycles:   validationLog.length,
+          validationFailures: validationLog.reduce((s, c) => s + c.failureCount, 0),
+          ragPassageCount:    passages.length,
+        },
+      });
+      if (traceBody) {
+        fetch(`${BASE_URL}/traces`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(traceBody),
+        }).catch(err => console.warn('[Trace] Telemetry POST failed:', err.message));
+      }
     }
 
     const randomizedQuestions = validatedQuestions.map(randomizeQuestion);

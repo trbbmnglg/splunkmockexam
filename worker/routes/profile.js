@@ -15,12 +15,21 @@
  *   adaptive agent re-engages immediately.
  */
 
+import { verifyAuthedBody, verifyAuthedRequest } from './_auth.js';
+
 const SCORE_HISTORY_WINDOW   = 7;
 const GRADUATION_WINDOW      = 4;    // last N sessions must all be strong
 const GRADUATION_THRESHOLD   = 80;   // each session score must be ≥ this
 
+// ── Input validation bounds (defense against malicious/malformed clients) ────
+const MAX_SESSION_RESULTS    = 50;
+const MAX_TOPIC_LENGTH       = 100;
+const MAX_EXAM_TYPE_LENGTH   = 50;
+const MAX_ATTEMPTS_PER_TOPIC = 500;
+
 // ─── Rolling trend from score history ────────────────────────────────────────
-function computeTrend(scoreHistory) {
+// Exported so unit tests can verify without a live D1 instance.
+export function computeTrend(scoreHistory) {
   if (!Array.isArray(scoreHistory) || scoreHistory.length < 2) return 'new';
   const mid    = Math.floor(scoreHistory.length / 2);
   const older  = scoreHistory.slice(0, mid);
@@ -34,7 +43,7 @@ function computeTrend(scoreHistory) {
 }
 
 // ─── Append score to history, capped at window size ───────────────────────────
-function appendScore(existingHistoryJson, newScore) {
+export function appendScore(existingHistoryJson, newScore) {
   let history = [];
   try {
     history = JSON.parse(existingHistoryJson || '[]');
@@ -52,7 +61,7 @@ function appendScore(existingHistoryJson, newScore) {
 // ─── Graduation check ─────────────────────────────────────────────────────────
 // Returns ISO timestamp if topic should be graduated now, or null if not.
 // Un-graduates if the latest score is below threshold regardless of history.
-function computeGraduatedAt(scoreHistory, existingGraduatedAt, now) {
+export function computeGraduatedAt(scoreHistory, existingGraduatedAt, now) {
   if (!Array.isArray(scoreHistory) || scoreHistory.length < GRADUATION_WINDOW) return null;
 
   const latestScore = scoreHistory[scoreHistory.length - 1];
@@ -86,6 +95,10 @@ async function getProfile(request, env, ok, err) {
   const examType = url.searchParams.get('examType');
 
   if (!userId || !examType) return err('userId and examType are required', 400);
+
+  // Header-based auth — protects the study history from cross-user reads.
+  const auth = await verifyAuthedRequest(request, env, userId);
+  if (!auth.ok) return err(auth.message, auth.status);
 
   const rows = await env.DB.prepare(
     `SELECT topic, attempts, errors, last_score, trend, score_history, graduated_at, sessions, last_updated
@@ -130,9 +143,38 @@ async function postProfile(request, env, ok, err) {
   try { body = await request.json(); }
   catch { return err('Invalid JSON body', 400); }
 
-  const { userId, examType, sessionResults } = body;
-  if (!userId || !examType || !Array.isArray(sessionResults)) {
-    return err('userId, examType, and sessionResults[] are required', 400);
+  // Signed-payload auth — any mutating write must prove ownership of userId.
+  const auth = await verifyAuthedBody(body, env);
+  if (!auth.ok) return err(auth.message, auth.status);
+  const userId = auth.userId;
+
+  const { examType, sessionResults } = body;
+  if (!examType || typeof examType !== 'string' || examType.length > MAX_EXAM_TYPE_LENGTH) {
+    return err('examType is required (string, max 50 chars)', 400);
+  }
+  if (!Array.isArray(sessionResults) || sessionResults.length === 0) {
+    return err('sessionResults[] is required', 400);
+  }
+  if (sessionResults.length > MAX_SESSION_RESULTS) {
+    return err(`sessionResults must have at most ${MAX_SESSION_RESULTS} entries`, 400);
+  }
+
+  // Validate each row — reject malformed / out-of-range values so a malicious
+  // client can't trigger fake graduations, overflow aggregates, or bloat D1.
+  for (const r of sessionResults) {
+    if (!r || typeof r !== 'object') return err('sessionResults entries must be objects', 400);
+    if (typeof r.topic !== 'string' || r.topic.length === 0 || r.topic.length > MAX_TOPIC_LENGTH) {
+      return err(`topic must be a non-empty string ≤ ${MAX_TOPIC_LENGTH} chars`, 400);
+    }
+    if (!Number.isInteger(r.attempts) || r.attempts < 0 || r.attempts > MAX_ATTEMPTS_PER_TOPIC) {
+      return err(`attempts must be a non-negative integer ≤ ${MAX_ATTEMPTS_PER_TOPIC}`, 400);
+    }
+    if (!Number.isInteger(r.errors) || r.errors < 0 || r.errors > r.attempts) {
+      return err('errors must be a non-negative integer ≤ attempts', 400);
+    }
+    if (!Number.isFinite(r.sessionScore) || r.sessionScore < 0 || r.sessionScore > 100) {
+      return err('sessionScore must be a number between 0 and 100', 400);
+    }
   }
 
   const now = new Date().toISOString();
@@ -209,10 +251,18 @@ async function deleteProfile(request, env, ok, err) {
   try { body = await request.json(); }
   catch { return err('Invalid JSON body', 400); }
 
-  const { userId, examType } = body;
-  if (!userId) return err('userId is required', 400);
+  // Signed-payload auth — DELETE without examType wipes a user's entire
+  // exam history, so ownership verification is essential.
+  const auth = await verifyAuthedBody(body, env);
+  if (!auth.ok) return err(auth.message, auth.status);
+  const userId = auth.userId;
+
+  const { examType } = body;
 
   if (examType) {
+    if (typeof examType !== 'string' || examType.length > MAX_EXAM_TYPE_LENGTH) {
+      return err('examType must be a string ≤ 50 chars', 400);
+    }
     await env.DB.prepare(
       `DELETE FROM topic_profiles WHERE user_id = ? AND exam_type = ?`
     ).bind(userId, examType).run();

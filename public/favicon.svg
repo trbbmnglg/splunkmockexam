@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Splunk Mock Exam">
+  <rect width="64" height="64" rx="10" fill="#A100FF"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Certificate / page -->
+    <path d="M16 12h24l4 4v36H16z"/>
+    <path d="M40 12v4h4"/>
+    <!-- Check mark -->
+    <path d="M22 30l5 5 11-12"/>
+    <!-- Lines -->
+    <line x1="22" y1="42" x2="38" y2="42"/>
+    <line x1="22" y1="48" x2="34" y2="48"/>
+  </g>
+</svg>

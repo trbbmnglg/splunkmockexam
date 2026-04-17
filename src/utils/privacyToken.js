@@ -68,6 +68,32 @@ export function buildSignedPayload(userId, token, extra = {}) {
   };
 }
 
+/**
+ * Convenience wrapper — every mutating fetch to a user-scoped worker route
+ * must sign its body with userId + raw token + fresh timestamp. Returns
+ * the combined body ready to JSON.stringify, or null if no token (caller
+ * should skip the write when tracking is disabled).
+ */
+export function signedBody(userId, extra = {}) {
+  const token = getOrCreateToken();
+  if (!token || !userId) return null;
+  return { userId, token, timestamp: Date.now(), ...extra };
+}
+
+/**
+ * Header-based variant for GET endpoints — the Worker reads the raw token
+ * from X-Auth-Token and the timestamp from X-Auth-Timestamp. Returns null
+ * if the client has no token yet (caller should fall back to public mode).
+ */
+export function authHeaders() {
+  const token = getOrCreateToken();
+  if (!token) return null;
+  return {
+    'X-Auth-Token':     token,
+    'X-Auth-Timestamp': String(Date.now()),
+  };
+}
+
 // ── Tracking preference ───────────────────────────────────────────────────────
 
 /**

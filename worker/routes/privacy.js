@@ -23,24 +23,9 @@
  *   4. Token hash never logged or returned in responses
  */
 
-const MAX_OPS_PER_DAY  = 3;
-const MAX_TIMESTAMP_AGE = 5 * 60 * 1000; // 5 minutes in ms
+import { verifyToken, isTimestampFresh } from './_auth.js';
 
-// ── SHA-256 hash (mirrors client-side hashToken) ──────────────────────────────
-async function hashToken(token) {
-  const enc    = new TextEncoder();
-  const digest = await crypto.subtle.digest('SHA-256', enc.encode(token));
-  return Array.from(new Uint8Array(digest))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-// ── Timestamp validation ──────────────────────────────────────────────────────
-function isTimestampFresh(timestamp) {
-  if (typeof timestamp !== 'number') return false;
-  const age = Date.now() - timestamp;
-  return age >= 0 && age < MAX_TIMESTAMP_AGE;
-}
+const MAX_OPS_PER_DAY = 3;
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 async function checkAndIncrementRateLimit(env, userId) {
@@ -65,27 +50,6 @@ async function checkAndIncrementRateLimit(env, userId) {
   return true;
 }
 
-// ── Token verification ────────────────────────────────────────────────────────
-async function verifyToken(env, userId, rawToken) {
-  if (!userId || !rawToken) return false;
-
-  const row = await env.DB.prepare(
-    `SELECT token_hash FROM privacy_tokens WHERE user_id = ?`
-  ).bind(userId).first();
-
-  if (!row) return false;
-
-  const incoming = await hashToken(rawToken);
-
-  // Constant-time comparison to prevent timing attacks
-  if (incoming.length !== row.token_hash.length) return false;
-  let diff = 0;
-  for (let i = 0; i < incoming.length; i++) {
-    diff |= incoming.charCodeAt(i) ^ row.token_hash.charCodeAt(i);
-  }
-  return diff === 0;
-}
-
 // ── Main handler ──────────────────────────────────────────────────────────────
 export async function handlePrivacy(request, env, ok, err) {
   if (request.method !== 'POST') return err('Method not allowed', 405);
@@ -97,7 +61,12 @@ export async function handlePrivacy(request, env, ok, err) {
   try { body = await request.json(); }
   catch { return err('Invalid JSON body', 400); }
 
-  // ── Register token (no auth required — just stores the hash) ───────────────
+  // ── Register token (first-write-wins — no auth required) ───────────────────
+  // CRITICAL: DO NOT allow overwriting an existing token. Previously this
+  // used ON CONFLICT DO UPDATE, which let any unauthenticated caller register
+  // a new hash for any userId and lock the real owner out of delete-all /
+  // download. Token rotation must go through a different endpoint that
+  // requires proof of the old token.
   if (action === 'register-token') {
     const { userId, tokenHash } = body;
     if (!userId || !tokenHash) return err('userId and tokenHash are required', 400);
@@ -109,11 +78,35 @@ export async function handlePrivacy(request, env, ok, err) {
     await env.DB.prepare(`
       INSERT INTO privacy_tokens (user_id, token_hash, created_at, updated_at)
       VALUES (?, ?, ?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET
-        token_hash = excluded.token_hash,
-        updated_at = excluded.updated_at
+      ON CONFLICT(user_id) DO NOTHING
     `).bind(userId, tokenHash, now, now).run();
 
+    return ok({ success: true });
+  }
+
+  // ── Rotate token (requires proof of existing token) ────────────────────────
+  // Allows clients to legitimately replace their token (e.g. after clearing
+  // localStorage) without reopening the takeover vector above.
+  if (action === 'rotate-token') {
+    const { userId, token, timestamp, newTokenHash } = body;
+    if (!userId || !token || !newTokenHash) {
+      return err('userId, token, and newTokenHash are required', 400);
+    }
+    if (!/^[0-9a-f]{64}$/.test(newTokenHash)) {
+      return err('Invalid token hash format', 400);
+    }
+    if (!isTimestampFresh(timestamp)) {
+      return err('Request expired — generate a fresh request and try again', 401);
+    }
+    const valid = await verifyToken(env, userId, token);
+    if (!valid) return err('Unauthorized', 401);
+    const allowed = await checkAndIncrementRateLimit(env, userId);
+    if (!allowed) return err(`Rate limit reached — max ${MAX_OPS_PER_DAY} data operations per day`, 429);
+
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      `UPDATE privacy_tokens SET token_hash = ?, updated_at = ? WHERE user_id = ?`
+    ).bind(newTokenHash, now, userId).run();
     return ok({ success: true });
   }
 

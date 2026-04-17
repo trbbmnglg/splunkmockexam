@@ -29,17 +29,8 @@ export default memo(function ExamScreen({
 }) {
   const q = questions[currentQuestionIndex];
 
-  // ── Hide / restore nav in focus mode ──────────────────────────────────────
-  useEffect(() => {
-    const nav = document.querySelector('nav');
-    if (!nav) return;
-    if (focusMode) {
-      nav.style.display = 'none';
-    } else {
-      nav.style.display = '';
-    }
-    return () => { nav.style.display = ''; };
-  }, [focusMode]);
+  // Nav visibility is owned by App.jsx — it conditionally renders the nav
+  // based on `focusMode`. No DOM query / style mutation needed here.
 
   // ── Escape key — exit focus mode only (arrow keys handled in useKeyboard) ─
   useEffect(() => {

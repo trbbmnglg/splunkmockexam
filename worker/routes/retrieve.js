@@ -78,7 +78,6 @@ export async function handleRetrieve(request, env, ok, err) {
     let matches       = vectorResults.matches || [];
 
     if (matches.length < 3) {
-      console.log(`[Retrieve] Cert-filtered results sparse (${matches.length}), falling back to unfiltered`);
       const fallbackResults = await env.VECTORIZE.query(queryVector, {
         topK:           TOP_K_VECTORIZE,
         returnMetadata: 'all',
@@ -96,7 +95,6 @@ export async function handleRetrieve(request, env, ok, err) {
       : matches.filter(m => m.metadata?.text).slice(0, TOP_K_VECTORIZE);
 
     if (pool.length === 0) {
-      console.log(`[Retrieve] No candidates found for query: ${query}`);
       return ok({ passages: [], query, reranked: false });
     }
 
@@ -109,19 +107,12 @@ export async function handleRetrieve(request, env, ok, err) {
       score: Math.round(m.score * 100) / 100,
     }));
 
-    console.log(`[Retrieve] Pool: ${poolPassages.length} candidates, top score: ${poolPassages[0]?.score}`);
-
     // ── Step 2: Jina Reranker v3 ────────────────────────────────────────────
     let finalPassages;
     let reranked = false;
 
-    // Debug: log key presence without exposing the value
-    console.log(`[Retrieve] JINA_API_KEY present: ${!!env.JINA_API_KEY}`);
-
     if (env.JINA_API_KEY && poolPassages.length > 0) {
       try {
-        console.log(`[Retrieve] Calling Jina reranker v3 with ${poolPassages.length} candidates...`);
-
         const jinaResponse = await fetch('https://api.jina.ai/v1/rerank', {
           method: 'POST',
           headers: {
@@ -138,8 +129,6 @@ export async function handleRetrieve(request, env, ok, err) {
           signal: AbortSignal.timeout(5000),
         });
 
-        console.log(`[Retrieve] Jina response status: ${jinaResponse.status}`);
-
         if (jinaResponse.ok) {
           const jinaData = await jinaResponse.json();
           const results  = jinaData.results || [];
@@ -150,10 +139,8 @@ export async function handleRetrieve(request, env, ok, err) {
               score: Math.round(r.relevance_score * 100) / 100,
             }));
             reranked = true;
-            console.log(`[Retrieve] Reranked ${pool.length} candidates → top ${finalPassages.length} passages`);
-            console.log(`[Retrieve] Top reranked scores: ${finalPassages.map(p => p.score).join(', ')}`);
           } else {
-            console.warn(`[Retrieve] Jina returned empty results array — falling back to Vectorize top-5`);
+            console.warn('[Retrieve] Jina returned empty results — falling back to Vectorize top-5');
           }
         } else {
           const errText = await jinaResponse.text();
@@ -162,8 +149,6 @@ export async function handleRetrieve(request, env, ok, err) {
       } catch (jinaErr) {
         console.warn(`[Retrieve] Jina reranker failed (${jinaErr.message}) — falling back to Vectorize top-5`);
       }
-    } else {
-      console.log(`[Retrieve] Skipping Jina — key present: ${!!env.JINA_API_KEY}, pool size: ${poolPassages.length}`);
     }
 
     // Fallback: top-5 by Vectorize cosine score
@@ -180,7 +165,9 @@ export async function handleRetrieve(request, env, ok, err) {
     });
 
   } catch (e) {
-    console.error('[Retrieve] Error:', e.message);
-    return ok({ passages: [], query, error: e.message, reranked: false });
+    // Log full detail server-side; return a generic empty result to the
+    // client so internal error strings don't surface in the browser.
+    console.error('[Retrieve] Error:', e?.stack || e?.message || e);
+    return ok({ passages: [], query, reranked: false });
   }
 }

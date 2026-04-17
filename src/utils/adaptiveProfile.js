@@ -1,7 +1,7 @@
 /**
  * Profile loading, updating, readiness scoring, and summary.
  */
-import { isTrackingEnabled } from './privacyToken.js';
+import { isTrackingEnabled, signedBody, authHeaders } from './privacyToken.js';
 import { BASE_URL } from './baseUrl';
 import {
   getUserId, loadLocalProfile, saveLocalProfile,
@@ -9,7 +9,9 @@ import {
 } from './adaptiveStorage';
 
 // ─── Rolling trend from score history ────────────────────────────────────────
-const computeRollingTrend = (scoreHistory, lastScore, prevScore) => {
+// Exported so unit tests can verify the graduation / trend logic without
+// needing a DOM, localStorage, or network mock.
+export const computeRollingTrend = (scoreHistory, lastScore, prevScore) => {
   if (Array.isArray(scoreHistory) && scoreHistory.length >= 2) {
     const mid       = Math.floor(scoreHistory.length / 2);
     const older     = scoreHistory.slice(0, mid);
@@ -30,7 +32,7 @@ const computeRollingTrend = (scoreHistory, lastScore, prevScore) => {
 };
 
 // ─── Client-side graduation check ────────────────────────────────────────────
-const computeGraduatedAt = (scoreHistory, existingGraduatedAt, now) => {
+export const computeGraduatedAt = (scoreHistory, existingGraduatedAt, now) => {
   if (!Array.isArray(scoreHistory) || scoreHistory.length < GRADUATION_WINDOW) return null;
   const latestScore = scoreHistory[scoreHistory.length - 1];
   if (latestScore < GRADUATION_THRESHOLD) return null;
@@ -41,7 +43,7 @@ const computeGraduatedAt = (scoreHistory, existingGraduatedAt, now) => {
 };
 
 // ─── Append score to local history ───────────────────────────────────────────
-const appendToHistory = (existingHistory, newScore) => {
+export const appendToHistory = (existingHistory, newScore) => {
   const history = Array.isArray(existingHistory) ? [...existingHistory] : [];
   history.push(newScore);
   if (history.length > SCORE_HISTORY_WINDOW) {
@@ -87,10 +89,17 @@ const computeTopicValidationFailures = (validationLog, questions) => {
  */
 export const loadProfile = async (examType) => {
   const userId = getUserId();
+  const headers = authHeaders();
+  // If no token yet (first load), skip the remote read — localStorage
+  // fallback still serves as the offline / unverified source of truth.
+  if (!headers) {
+    const local = loadLocalProfile();
+    return local[examType] || { sessions: 0, lastUpdated: null, topics: {} };
+  }
   try {
     const res = await fetch(
       `${BASE_URL}/profile?userId=${encodeURIComponent(userId)}&examType=${encodeURIComponent(examType)}`,
-      { signal: AbortSignal.timeout(5000) }
+      { headers, signal: AbortSignal.timeout(5000) }
     );
     if (res.ok) {
       const data = await res.json();
@@ -158,11 +167,14 @@ export const updateProfile = async (examType, questions, userAnswers, validation
   }));
 
   if (isTrackingEnabled()) {
-    fetch(`${BASE_URL}/profile`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ userId, examType, sessionResults, overallFailureRate })
-    }).catch(err => console.warn('[Adaptive] D1 write failed:', err.message));
+    const profileBody = signedBody(userId, { examType, sessionResults, overallFailureRate });
+    if (profileBody) {
+      fetch(`${BASE_URL}/profile`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(profileBody),
+      }).catch(err => console.warn('[Adaptive] D1 write failed:', err.message));
+    }
 
     const wrongAnswers = questions
       .map((q, idx) => ({ q, idx }))
@@ -174,11 +186,14 @@ export const updateProfile = async (examType, questions, userAnswers, validation
       }));
 
     if (wrongAnswers.length > 0) {
-      fetch(`${BASE_URL}/wrong-answers`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ userId, examType, wrongAnswers })
-      }).catch(err => console.warn('[Adaptive] Wrong answers write failed:', err.message));
+      const waBody = signedBody(userId, { examType, wrongAnswers });
+      if (waBody) {
+        fetch(`${BASE_URL}/wrong-answers`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(waBody),
+        }).catch(err => console.warn('[Adaptive] Wrong answers write failed:', err.message));
+      }
     }
   } else {
     console.info('[Adaptive] Tracking disabled — skipping D1 profile + wrong answers write');

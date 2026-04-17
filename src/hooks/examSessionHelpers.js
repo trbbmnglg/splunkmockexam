@@ -11,6 +11,7 @@ import {
   FETCH_TIMEOUT_MS,
 } from '../utils/constants';
 import { getUserId } from '../utils/agentAdaptive';
+import { signedBody } from '../utils/privacyToken.js';
 import { normalizeString, clampString } from '../utils/helpers';
 
 /**
@@ -63,10 +64,12 @@ export async function fetchDocPassages(baseUrl, type, topics) {
 export async function checkAndIncrementUsage(baseUrl) {
   try {
     const userId = getUserId();
+    const body = signedBody(userId);
+    if (!body) return { allowed: true, remaining: null };
     const res = await fetch(`${baseUrl}/usage`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ userId }),
+      body:    JSON.stringify(body),
       signal:  AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (res.status === 429) {

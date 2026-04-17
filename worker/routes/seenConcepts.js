@@ -2,7 +2,7 @@
  * worker/routes/seenConcepts.js
  *
  * POST /api/seen-concepts
- *   → Body: { userId, examType, concepts: [{ hash, hint, topic }] }
+ *   → Body: { userId, token, timestamp, examType, concepts: [{ hash, hint, topic }] }
  *   → Upserts concept rows — if already seen, just updates created_at
  *   → Keeps last 100 concepts per user per exam (trims oldest on insert)
  *
@@ -11,7 +11,10 @@
  *   → Shape: { concepts: [{ hash, hint, topic }] }
  */
 
+import { verifyAuthedBody, verifyAuthedRequest } from './_auth.js';
+
 const MAX_CONCEPTS = 100;
+const MAX_CONCEPT_BATCH = 100;
 
 export async function handleSeenConcepts(request, env, ok, err) {
   if (request.method === 'GET')  return getSeenConcepts(request, env, ok, err);
@@ -26,6 +29,9 @@ async function getSeenConcepts(request, env, ok, err) {
   const limit    = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
 
   if (!userId || !examType) return err('userId and examType are required', 400);
+
+  const auth = await verifyAuthedRequest(request, env, userId);
+  if (!auth.ok) return err(auth.message, auth.status);
 
   const rows = await env.DB.prepare(`
     SELECT concept_hash, concept_hint, topic
@@ -43,9 +49,16 @@ async function postSeenConcepts(request, env, ok, err) {
   try { body = await request.json(); }
   catch { return err('Invalid JSON body', 400); }
 
-  const { userId, examType, concepts } = body;
-  if (!userId || !examType || !Array.isArray(concepts) || concepts.length === 0) {
-    return err('userId, examType, and concepts[] are required', 400);
+  const auth = await verifyAuthedBody(body, env);
+  if (!auth.ok) return err(auth.message, auth.status);
+  const userId = auth.userId;
+
+  const { examType, concepts } = body;
+  if (!examType || !Array.isArray(concepts) || concepts.length === 0) {
+    return err('examType and concepts[] are required', 400);
+  }
+  if (concepts.length > MAX_CONCEPT_BATCH) {
+    return err(`concepts must have at most ${MAX_CONCEPT_BATCH} entries`, 400);
   }
 
   const now = new Date().toISOString();

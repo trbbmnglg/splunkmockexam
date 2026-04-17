@@ -2,14 +2,16 @@
  * worker/routes/wrongAnswers.js
  *
  * POST /api/wrong-answers
- *   → Body: { userId, examType, wrongAnswers: [ { topic, question, correctAnswer } ] }
+ *   → Body: { userId, token, timestamp, examType, wrongAnswers: [ { topic, question, correctAnswer } ] }
  *   → Upserts wrong answer rows, increments times_missed, advances next_review date
- *   → Uses a simple spaced repetition schedule: 1, 3, 7, 14, 30 days
+ *   → Uses a simple spaced repetition schedule: 1, 3, 7, 14, 30, 60 days
  *
  * GET /api/wrong-answers?userId=xxx&examType=yyy&dueOnly=true
  *   → Returns wrong answers due for review (next_review <= today)
  *   → Or all wrong answers if dueOnly is not set
  */
+
+import { verifyAuthedBody, verifyAuthedRequest } from './_auth.js';
 
 // Simple spaced repetition intervals (days) based on times_missed
 const SR_INTERVALS = [1, 3, 7, 14, 30, 60];
@@ -21,15 +23,14 @@ function nextReviewDate(timesMissed) {
   return date.toISOString().split('T')[0]; // YYYY-MM-DD
 }
 
-// Simple hash function for question deduplication (no crypto needed)
-function simpleHash(str) {
-  let hash = 0;
-  for (let i = 0; i < Math.min(str.length, 200); i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  return Math.abs(hash).toString(36);
+// SHA-256 dedup hash (16-hex prefix = 64 bits) — prior 32-bit simpleHash was
+// both collision-prone AND truncated input at 200 chars, which would merge
+// two genuinely-different questions that happened to share a common prefix.
+async function questionHash(question) {
+  const enc = new TextEncoder();
+  const digest = await crypto.subtle.digest('SHA-256', enc.encode(question));
+  const bytes = new Uint8Array(digest).slice(0, 8);
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 export async function handleWrongAnswers(request, env, ok, err) {
@@ -56,6 +57,9 @@ async function getWrongAnswers(request, env, ok, err) {
   if (!userId || !examType) {
     return err('userId and examType are required', 400);
   }
+
+  const auth = await verifyAuthedRequest(request, env, userId);
+  if (!auth.ok) return err(auth.message, auth.status);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -90,17 +94,23 @@ async function postWrongAnswers(request, env, ok, err) {
     return err('Invalid JSON body', 400);
   }
 
-  const { userId, examType, wrongAnswers } = body;
+  // Signed-payload auth — otherwise any caller could poison a victim's bank.
+  const auth = await verifyAuthedBody(body, env);
+  if (!auth.ok) return err(auth.message, auth.status);
+  const userId = auth.userId;
 
-  if (!userId || !examType || !Array.isArray(wrongAnswers) || wrongAnswers.length === 0) {
-    return err('userId, examType, and wrongAnswers[] are required', 400);
+  const { examType, wrongAnswers } = body;
+  if (!examType || !Array.isArray(wrongAnswers) || wrongAnswers.length === 0) {
+    return err('examType and wrongAnswers[] are required', 400);
+  }
+  if (wrongAnswers.length > 100) {
+    return err('wrongAnswers must have at most 100 entries', 400);
   }
 
   const now = new Date().toISOString();
+  const hashes = await Promise.all(wrongAnswers.map(w => questionHash(w.question || '')));
 
-  const statements = wrongAnswers.map(({ topic, question, correctAnswer }) => {
-    const hash = simpleHash(question);
-
+  const statements = wrongAnswers.map(({ topic, question, correctAnswer }, i) => {
     return env.DB.prepare(`
       INSERT INTO wrong_answers (user_id, exam_type, topic, question_hash, question, correct_answer, times_missed, last_missed, next_review)
       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
@@ -110,7 +120,7 @@ async function postWrongAnswers(request, env, ok, err) {
         last_missed  = excluded.last_missed,
         next_review  = excluded.next_review
     `).bind(
-      userId, examType, topic, hash, question, correctAnswer,
+      userId, examType, topic, hashes[i], question, correctAnswer,
       now,
       nextReviewDate(1) // Will be recalculated properly on conflict via trigger workaround below
     );
@@ -121,7 +131,6 @@ async function postWrongAnswers(request, env, ok, err) {
   await env.DB.batch(statements);
 
   // Fix next_review for all affected rows
-  const hashes = wrongAnswers.map(w => simpleHash(w.question));
   const fixStatements = hashes.map(hash =>
     env.DB.prepare(`
       UPDATE wrong_answers
@@ -152,8 +161,12 @@ async function deleteWrongAnswers(request, env, ok, err) {
     return err('Invalid JSON body', 400);
   }
 
-  const { userId, examType, questionHashes } = body;
-  if (!userId || !examType) return err('userId and examType are required', 400);
+  const auth = await verifyAuthedBody(body, env);
+  if (!auth.ok) return err(auth.message, auth.status);
+  const userId = auth.userId;
+
+  const { examType, questionHashes } = body;
+  if (!examType) return err('examType is required', 400);
 
   if (Array.isArray(questionHashes) && questionHashes.length > 0) {
     // Delete specific questions by hash

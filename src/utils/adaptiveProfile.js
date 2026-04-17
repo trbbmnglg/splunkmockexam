@@ -1,7 +1,7 @@
 /**
  * Profile loading, updating, readiness scoring, and summary.
  */
-import { isTrackingEnabled, signedBody, authHeaders } from './privacyToken.js';
+import { isTrackingEnabled, signedBody, authHeaders, rotateIdentity } from './privacyToken.js';
 import { BASE_URL } from './baseUrl';
 import {
   getUserId, loadLocalProfile, saveLocalProfile,
@@ -101,6 +101,15 @@ export const loadProfile = async (examType) => {
       `${BASE_URL}/profile?userId=${encodeURIComponent(userId)}&examType=${encodeURIComponent(examType)}`,
       { headers, signal: AbortSignal.timeout(5000) }
     );
+
+    // 401 means this client's token doesn't match the hash in D1 for this
+    // userId (e.g., localStorage was cleared, or we're on a different
+    // device). Rotate to a fresh identity so every subsequent auth'd
+    // request self-heals. No retry here — the caller gets the localStorage
+    // fallback below, and the NEXT interaction will use the fresh userId.
+    if (res.status === 401) {
+      rotateIdentity(BASE_URL).catch(() => { /* non-fatal */ });
+    }
     if (res.ok) {
       const data = await res.json();
       if (data.topics && Object.keys(data.topics).length > 0) {

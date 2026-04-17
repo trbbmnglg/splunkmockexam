@@ -6,7 +6,7 @@
  * before touching D1. Community stats is the one exception (aggregate,
  * anonymized — intentionally public).
  */
-import { isTrackingEnabled, signedBody, authHeaders } from './privacyToken.js';
+import { isTrackingEnabled, signedBody, authHeaders, rotateIdentity } from './privacyToken.js';
 import { BASE_URL } from './baseUrl';
 import { getUserId } from './adaptiveStorage';
 
@@ -39,6 +39,7 @@ export const getWrongAnswerBank = async (examType, dueOnly = false) => {
     const url = `${BASE_URL}/wrong-answers?userId=${encodeURIComponent(userId)}&examType=${encodeURIComponent(examType)}&dueOnly=${dueOnly}`;
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
     if (res.ok) return await res.json();
+    if (res.status === 401) rotateIdentity(BASE_URL).catch(() => {});
   } catch (err) {
     console.warn('[Adaptive] getWrongAnswerBank failed:', err.message);
   }
@@ -133,6 +134,7 @@ export const getRecentSeenConcepts = async (examType) => {
       const data = await res.json();
       return data.concepts || [];
     }
+    if (res.status === 401) rotateIdentity(BASE_URL).catch(() => {});
   } catch (err) {
     console.warn('[Adaptive] getRecentSeenConcepts failed:', err.message);
   }

@@ -146,3 +146,68 @@ export function clearAllLocalData() {
     getOrCreateToken();
   } catch { /* non-fatal */ }
 }
+
+// ── Auto-recovery from a stale token / mismatched userId ──────────────────────
+//
+// The worker's privacy_tokens table is first-write-wins — once a row exists
+// for a given userId, the stored hash is immutable without proof of the old
+// token. If the user's localStorage state drifts from D1 (cleared storage,
+// different device, older visit), every auth'd request will 401.
+//
+// rotateIdentity() handles that case by minting a fresh userId + token pair,
+// re-registering the hash, and effectively abandoning the orphaned D1 row.
+
+let rotationPromise = null;
+let lastRotationAt = 0;
+const MIN_ROTATION_INTERVAL_MS = 10 * 1000;
+
+/**
+ * Mint a fresh userId + token, register the new token, return the new userId.
+ * Safe to call concurrently — the first caller does the work, all other
+ * in-flight callers await the same promise. Throttled so a burst of parallel
+ * 401s only triggers one rotation.
+ * @param {string} baseUrl - e.g. BASE_URL from utils/baseUrl
+ * @returns {Promise<string|null>} The new userId, or null if unavailable.
+ */
+export function rotateIdentity(baseUrl) {
+  if (rotationPromise) return rotationPromise;
+  if (Date.now() - lastRotationAt < MIN_ROTATION_INTERVAL_MS) {
+    try { return Promise.resolve(localStorage.getItem('splunkUserId')); }
+    catch { return Promise.resolve(null); }
+  }
+
+  rotationPromise = (async () => {
+    try {
+      // Nuke identity keys; keep UI prefs (consent, tracking, API keys)
+      // so the user isn't dropped back to onboarding.
+      try {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem('splunkUserId');
+        localStorage.removeItem('splunkAdaptiveProfile');
+      } catch { /* non-fatal */ }
+
+      // Fresh userId (mirrors adaptiveStorage.js format)
+      const newUserId = 'u_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+      try { localStorage.setItem('splunkUserId', newUserId); } catch { /* non-fatal */ }
+
+      // Fresh token and registration
+      const token = getOrCreateToken();
+      if (!token || !baseUrl) return newUserId;
+      const tokenHash = await hashToken(token);
+
+      await fetch(`${baseUrl}/privacy/register-token`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ userId: newUserId, tokenHash }),
+        signal:  AbortSignal.timeout(8000),
+      }).catch(() => { /* non-fatal — next auth call will retry */ });
+
+      lastRotationAt = Date.now();
+      return newUserId;
+    } finally {
+      rotationPromise = null;
+    }
+  })();
+
+  return rotationPromise;
+}

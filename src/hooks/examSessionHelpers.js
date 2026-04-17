@@ -11,7 +11,7 @@ import {
   FETCH_TIMEOUT_MS,
 } from '../utils/constants';
 import { getUserId } from '../utils/agentAdaptive';
-import { signedBody } from '../utils/privacyToken.js';
+import { signedBody, rotateIdentity } from '../utils/privacyToken.js';
 import { normalizeString, clampString } from '../utils/helpers';
 
 /**
@@ -83,6 +83,12 @@ export async function checkAndIncrementUsage(baseUrl) {
         allowed: false,
         message: `You've reached the daily limit of 10 free exams (resets at ${resetTime}).\n\nTo keep practising, add your own free Groq API key in Advanced Settings — it takes 30 seconds to get one at console.groq.com/keys`,
       };
+    }
+    if (res.status === 401) {
+      // Stale token — rotate silently, allow this exam to proceed (the
+      // rate limit will re-establish under the new userId on next call).
+      rotateIdentity(baseUrl).catch(() => {});
+      return { allowed: true, remaining: null };
     }
     if (res.ok) {
       const data = await res.json();

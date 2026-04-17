@@ -111,6 +111,14 @@ export default function PrivacySettingsModal({ onClose }) {
   };
 
   // ── Delete all ──────────────────────────────────────────────────────────────
+  //
+  // 401 handling note: the worker rejects delete-all when the client's raw
+  // token doesn't hash to the row in D1 (previous register-token may have
+  // stored a different hash, e.g., a different device / cleared localStorage).
+  // In that case we fall back to a LOCAL-only clear — the user's browser
+  // state is fully removed and the orphaned D1 row becomes unreachable
+  // because the userId no longer exists on this device. Full server-side
+  // wipe would require proof of the original token, which they don't have.
   const handleDeleteAll = async () => {
     setLoading('delete');
     setStatus(null);
@@ -122,7 +130,21 @@ export default function PrivacySettingsModal({ onClose }) {
         body:    JSON.stringify(payload),
         signal:  AbortSignal.timeout(15000),
       });
-      if (res.status === 401) throw new Error('Authentication failed — please try again.');
+
+      if (res.status === 401) {
+        // Local-only fallback — still removes this device's identity so
+        // the user's next visit starts fresh. Server data becomes orphaned
+        // (no userId → nothing can query it).
+        clearAllLocalData();
+        setConfirmDelete(false);
+        showStatus(
+          'success',
+          'Local data cleared on this device. Server-side data could not be verified as yours and will age out — contact the maintainer if you need it removed sooner. Reloading in 4 seconds.',
+          4500,
+        );
+        setTimeout(() => window.location.reload(), 4500);
+        return;
+      }
       if (res.status === 429) throw new Error('Rate limit reached — max 3 data operations per day.');
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
 
@@ -168,6 +190,21 @@ export default function PrivacySettingsModal({ onClose }) {
         body:    JSON.stringify(payload),
         signal:  AbortSignal.timeout(15000),
       });
+
+      if (res.status === 401) {
+        // Same local-only fallback as handleDeleteAll — see comment above.
+        clearAllLocalData();
+        setTrackingEnabled(false);
+        setTrackingOn(false);
+        setShowKeepOrDelete(false);
+        showStatus(
+          'success',
+          'Tracking disabled. Local data cleared — server-side data could not be verified as yours and will age out. Reloading in 4 seconds.',
+          4500,
+        );
+        setTimeout(() => window.location.reload(), 4500);
+        return;
+      }
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       clearAllLocalData();
       setTrackingEnabled(false);
